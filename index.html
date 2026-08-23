@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Kanakku - Personal Finance & Budget</title>
+    <meta name="description" content="Personal finance, cash flow, spending psychology and budget tracker." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+      // Immediate Theme Initializer
+      try {
+        const savedSettings = localStorage.getItem('kanakku_v2_settings') || localStorage.getItem('kanakku_settings');
+        if (savedSettings) {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed.darkMode) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        }
+      } catch (e) {
+        // Fallback to default
+      }
+    </script>
+  </head>
+  <body class="antialiased selection:bg-black selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

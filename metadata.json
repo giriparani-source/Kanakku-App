@@ -1,0 +1,7 @@
+{
+  "name": "Kanakku - Personal Finance & Budget Tracker",
+  "description": "An Apple-premium personal expense tracker, visual insights dashboard, and budget manager.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
