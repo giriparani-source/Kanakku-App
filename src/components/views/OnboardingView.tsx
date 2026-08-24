@@ -81,13 +81,13 @@ export const OnboardingView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ==========================================
-  // TAB 3 STATE: Starting Balances & Currency
+  // TAB 3 STATE: Starting Balances & Currency (Empty by default)
   // ==========================================
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>(settings.currency || 'INR');
   const [balances, setBalances] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     locations.forEach((loc) => {
-      map[loc.id] = '0';
+      map[loc.id] = '';
     });
     return map;
   });
@@ -115,11 +115,11 @@ export const OnboardingView: React.FC = () => {
 
   const currentCurrencySymbol = getCurrencySymbol(selectedCurrency);
 
-  // Sum of all individual account balances
+  // Sum of all individual account balances safely treating empty strings as 0
   const totalStartingNetWorth = locations.reduce((sum, loc) => {
-    const rawVal = balances[loc.id] ?? '0';
-    const parsed = parseFloat(rawVal) || 0;
-    return sum + parsed;
+    const rawVal = balances[loc.id] ?? '';
+    const parsed = parseFloat(rawVal);
+    return sum + (isNaN(parsed) ? 0 : Math.max(0, parsed));
   }, 0);
 
   const handleBalanceChange = (locId: string, val: string) => {
@@ -208,12 +208,12 @@ export const OnboardingView: React.FC = () => {
         setTab2Error(null);
         setTab3Error(null);
 
-        // Reset balances map to 0
-        const zeroBalances: Record<string, string> = {};
+        // Reset balances map to empty strings
+        const emptyBalances: Record<string, string> = {};
         locations.forEach((loc) => {
-          zeroBalances[loc.id] = '0';
+          emptyBalances[loc.id] = '';
         });
-        setBalances(zeroBalances);
+        setBalances(emptyBalances);
 
         // Reset profile in context so no crossover data remains
         updateProfile({
@@ -818,10 +818,10 @@ export const OnboardingView: React.FC = () => {
                         type="number"
                         step="any"
                         min="0"
-                        value={balances[loc.id] ?? '0'}
+                        value={balances[loc.id] ?? ''}
                         onChange={(e) => handleBalanceChange(loc.id, e.target.value)}
-                        placeholder="0.00"
-                        className="w-full px-2.5 py-2 bg-white dark:bg-[#141B2A] rounded-xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white text-right tabular-nums"
+                        placeholder="0"
+                        className="w-full px-2.5 py-2 bg-white dark:bg-[#141B2A] rounded-xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white text-right tabular-nums placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
                       />
                     </div>
                   </div>
@@ -841,7 +841,7 @@ export const OnboardingView: React.FC = () => {
                     ))}
                     <button
                       type="button"
-                      onClick={() => handleBalanceChange(loc.id, '0')}
+                      onClick={() => handleBalanceChange(loc.id, '')}
                       className="px-2 py-0.5 rounded-lg bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-[10px] font-black text-neutral-600 dark:text-neutral-400 cursor-pointer transition-colors"
                     >
                       Reset
