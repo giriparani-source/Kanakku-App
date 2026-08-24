@@ -7,6 +7,23 @@ interface ProfileViewProps {
   onOpenLinkAccount: () => void;
 }
 
+// Helper to calculate age from Date of Birth string (YYYY-MM-DD) or fallback age
+function calculateAge(dobString?: string, fallbackAge?: number | string): number | string {
+  if (dobString) {
+    const birthDate = new Date(dobString);
+    if (!isNaN(birthDate.getTime())) {
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age >= 0) return age;
+    }
+  }
+  return fallbackAge !== undefined && fallbackAge !== '' ? fallbackAge : 24;
+}
+
 export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) => {
   const {
     profile,
@@ -24,16 +41,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
     showToast,
   } = useApp();
 
+  const userAge = calculateAge(profile.dob, profile.age);
+
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Edit Personal Info Form State
   const [isEditingInfo, setIsEditingInfo] = useState(false);
-  const [nameInput, setNameInput] = useState(profile.name);
-  const [ageInput, setAgeInput] = useState<string>(profile.age ? profile.age.toString() : '24');
+  const [nameInput, setNameInput] = useState(profile.name || '');
+  const [dobInput, setDobInput] = useState(profile.dob || '');
+  const [ageInput, setAgeInput] = useState<string>(userAge ? userAge.toString() : '24');
   const [professionInput, setProfessionInput] = useState<UserProfession>(profile.profession || 'Salaried');
-  const [emailInput, setEmailInput] = useState(profile.email);
-  const [phoneInput, setPhoneInput] = useState(profile.phone);
+  const [emailInput, setEmailInput] = useState(profile.email || '');
+  const [phoneInput, setPhoneInput] = useState(profile.phone || '');
 
   // Modals
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -81,9 +101,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
 
   const handleSaveInfo = (e: React.FormEvent) => {
     e.preventDefault();
+    const computedAge = dobInput ? calculateAge(dobInput, ageInput) : (parseInt(ageInput) || 24);
     updateProfile({
       name: nameInput.trim() || 'User',
-      age: parseInt(ageInput) || 24,
+      dob: dobInput,
+      age: computedAge,
       profession: professionInput,
       email: emailInput.trim(),
       phone: phoneInput.trim(),
@@ -160,15 +182,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
         <div>
           <div className="flex items-center justify-center gap-2">
             <h1 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight">
-              {profile.name}
+              {profile.name || 'User'}
             </h1>
             <button
               onClick={() => {
-                setNameInput(profile.name);
-                setAgeInput(profile.age ? profile.age.toString() : '24');
+                setNameInput(profile.name || '');
+                setDobInput(profile.dob || '');
+                setAgeInput(userAge ? userAge.toString() : '24');
                 setProfessionInput(profile.profession || 'Salaried');
-                setEmailInput(profile.email);
-                setPhoneInput(profile.phone);
+                setEmailInput(profile.email || '');
+                setPhoneInput(profile.phone || '');
                 setIsEditingInfo(true);
               }}
               className="p-1.5 text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl transition-colors cursor-pointer"
@@ -178,11 +201,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             </button>
           </div>
           <div className="flex items-center justify-center gap-2 mt-1">
-            <span className="px-2.5 py-0.5 rounded-full bg-black dark:bg-white text-white dark:text-black text-[10px] font-black uppercase">
-              {profile.profession || 'Salaried'}
-            </span>
+            {profile.profession && (
+              <span className="px-2.5 py-0.5 rounded-full bg-black dark:bg-white text-white dark:text-black text-[10px] font-black uppercase">
+                {profile.profession.toUpperCase()}
+              </span>
+            )}
             <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-              Age {profile.age || 24} • Member since {profile.memberSince}
+              Age {userAge}{profile.memberSince ? ` • Member since ${profile.memberSince}` : ''}
             </span>
           </div>
         </div>
@@ -217,14 +242,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Age</label>
+                  <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Date of Birth</label>
                   <input
-                    type="number"
-                    min="10"
-                    max="120"
-                    value={ageInput}
-                    onChange={(e) => setAgeInput(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white"
+                    type="date"
+                    max={new Date().toISOString().split('T')[0]}
+                    value={dobInput}
+                    onChange={(e) => {
+                      setDobInput(e.target.value);
+                      if (e.target.value) {
+                        const calculated = calculateAge(e.target.value);
+                        setAgeInput(calculated.toString());
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white cursor-pointer"
                   />
                 </div>
 
@@ -235,14 +265,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
                     onChange={(e) => setProfessionInput(e.target.value as UserProfession)}
                     className="w-full px-3 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white cursor-pointer"
                   >
-                    <option value="Student" className="bg-white dark:bg-[#141B2A]">Student</option>
-                    <option value="Salaried" className="bg-white dark:bg-[#141B2A]">Salaried</option>
+                    <option value="Salaried" className="bg-white dark:bg-[#141B2A]">💼 Salaried</option>
+                    <option value="Student" className="bg-white dark:bg-[#141B2A]">🎓 Student</option>
+                    <option value="Freelancer" className="bg-white dark:bg-[#141B2A]">💻 Freelancer</option>
+                    <option value="Business" className="bg-white dark:bg-[#141B2A]">🏢 Business</option>
+                    <option value="Self-Employed" className="bg-white dark:bg-[#141B2A]">🛠️ Self-Employed</option>
+                    <option value="Other" className="bg-white dark:bg-[#141B2A]">✨ Other</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Email</label>
+                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Email Address</label>
                 <input
                   type="email"
                   value={emailInput}
@@ -253,7 +287,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
               </div>
 
               <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Phone</label>
+                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Phone Number</label>
                 <input
                   type="tel"
                   value={phoneInput}
@@ -292,11 +326,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
           <button
             type="button"
             onClick={() => {
-              setNameInput(profile.name);
-              setAgeInput(profile.age ? profile.age.toString() : '24');
+              setNameInput(profile.name || '');
+              setDobInput(profile.dob || '');
+              setAgeInput(userAge ? userAge.toString() : '24');
               setProfessionInput(profile.profession || 'Salaried');
-              setEmailInput(profile.email);
-              setPhoneInput(profile.phone);
+              setEmailInput(profile.email || '');
+              setPhoneInput(profile.phone || '');
               setIsEditingInfo(true);
             }}
             className="text-xs font-black text-[#0066FF] dark:text-[#60A5FA] hover:underline cursor-pointer"
@@ -306,28 +341,44 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
         </div>
 
         <div className="space-y-3.5">
-          {/* Profession & Age Row */}
+          {/* 1st item: Age */}
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-center text-black dark:text-white shadow-sm shrink-0">
-              <span className="material-symbols-outlined text-xl font-bold">badge</span>
+              <span className="material-symbols-outlined text-xl font-bold">cake</span>
             </div>
             <div>
-              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Profession & Age</p>
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Age</p>
               <p className="text-sm font-black text-black dark:text-white">
-                {profile.profession || 'Salaried'} • {profile.age || 24} years old
+                {userAge ? `${userAge} years old` : 'Not set'}
+                {profile.dob ? ` (DOB: ${profile.dob})` : ''}
               </p>
             </div>
           </div>
 
           <div className="h-px bg-neutral-200 dark:bg-[#243048] ml-15" />
 
-          {/* Email Row */}
+          {/* 2nd item: Profession */}
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-center text-black dark:text-white shadow-sm shrink-0">
+              <span className="material-symbols-outlined text-xl font-bold">work</span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Profession</p>
+              <p className="text-sm font-black text-black dark:text-white">
+                {profile.profession || 'Not set'}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-px bg-neutral-200 dark:bg-[#243048] ml-15" />
+
+          {/* 3rd item: Email Address */}
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-center text-black dark:text-white shadow-sm shrink-0">
               <span className="material-symbols-outlined text-xl font-bold">mail</span>
             </div>
             <div className="truncate">
-              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Email</p>
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Email Address</p>
               <p className="text-sm font-black text-black dark:text-white truncate">
                 {profile.email || 'Not configured'}
               </p>
@@ -336,13 +387,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
 
           <div className="h-px bg-neutral-200 dark:bg-[#243048] ml-15" />
 
-          {/* Phone Row */}
+          {/* 4th item: Phone Number */}
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-center text-black dark:text-white shadow-sm shrink-0">
               <span className="material-symbols-outlined text-xl font-bold">call</span>
             </div>
             <div>
-              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Phone</p>
+              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Phone Number</p>
               <p className="text-sm font-black text-black dark:text-white">
                 {profile.phone || 'Not configured'}
               </p>
