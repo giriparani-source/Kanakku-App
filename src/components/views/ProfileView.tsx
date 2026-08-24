@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { UserProfession } from '../../types';
+import { UserProfession, UserProfile } from '../../types';
 import { fileToBase64 } from '../../utils/imageUtils';
+import { updateUserProfile } from '../../services/firestoreService';
 
 interface ProfileViewProps {
   onOpenLinkAccount: () => void;
@@ -21,7 +22,11 @@ function calculateAge(dobString?: string, fallbackAge?: number | string): number
       if (age >= 0) return age;
     }
   }
-  return fallbackAge !== undefined && fallbackAge !== '' ? fallbackAge : 24;
+  if (fallbackAge !== undefined && fallbackAge !== '' && fallbackAge !== null && fallbackAge !== 'Not Set') {
+    const parsed = Number(fallbackAge);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 'Not Set';
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) => {
@@ -50,10 +55,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [nameInput, setNameInput] = useState(profile.name || '');
   const [dobInput, setDobInput] = useState(profile.dob || '');
-  const [ageInput, setAgeInput] = useState<string>(userAge ? userAge.toString() : '24');
-  const [professionInput, setProfessionInput] = useState<UserProfession>(profile.profession || 'Salaried');
+  const [ageInput, setAgeInput] = useState<string>(userAge !== 'Not Set' ? userAge.toString() : '');
+  const [professionInput, setProfessionInput] = useState<UserProfession | ''>(profile.profession || '');
   const [emailInput, setEmailInput] = useState(profile.email || '');
   const [phoneInput, setPhoneInput] = useState(profile.phone || '');
+
+  // Synchronize form fields whenever profile changes and modal is closed
+  useEffect(() => {
+    if (!isEditingInfo) {
+      setNameInput(profile.name || '');
+      setDobInput(profile.dob || '');
+      setProfessionInput(profile.profession || '');
+      setEmailInput(profile.email || '');
+      setPhoneInput(profile.phone || '');
+      const currentAge = calculateAge(profile.dob, profile.age);
+      setAgeInput(currentAge !== 'Not Set' ? currentAge.toString() : '');
+    }
+  }, [profile, isEditingInfo]);
+
+  // Open Edit Modal with fresh values from profile state/database
+  const openEditModal = () => {
+    setNameInput(profile.name || '');
+    setDobInput(profile.dob || '');
+    setProfessionInput(profile.profession || '');
+    setEmailInput(profile.email || '');
+    setPhoneInput(profile.phone || '');
+    const currentAge = calculateAge(profile.dob, profile.age);
+    setAgeInput(currentAge !== 'Not Set' ? currentAge.toString() : '');
+    setIsEditingInfo(true);
+  };
 
   // Modals
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -99,19 +129,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
     reader.readAsText(file);
   };
 
-  const handleSaveInfo = (e: React.FormEvent) => {
+  const handleSaveInfo = async (e: React.FormEvent) => {
     e.preventDefault();
-    const computedAge = dobInput ? calculateAge(dobInput, ageInput) : (parseInt(ageInput) || 24);
-    updateProfile({
-      name: nameInput.trim() || 'User',
-      dob: dobInput,
-      age: computedAge,
-      profession: professionInput,
+    const computedAge = dobInput ? calculateAge(dobInput, ageInput) : (parseInt(ageInput) || (profile.age ? Number(profile.age) : ''));
+    const updatedData: Partial<UserProfile> = {
+      name: nameInput.trim() || profile.name || '',
+      dob: dobInput || '',
+      age: computedAge !== 'Not Set' ? computedAge : '',
+      profession: professionInput || '',
       email: emailInput.trim(),
       phone: phoneInput.trim(),
-    });
+    };
+
+    // 1. Update React Context State & Local Storage immediately
+    await updateProfile(updatedData);
+
+    // 2. Explicitly push and save updated details to Firestore database
+    await updateUserProfile(updatedData);
+
     setIsEditingInfo(false);
-    showToast('Personal information updated');
+    showToast('Personal information updated & saved to Cloud');
   };
 
   const handleSavePinLock = async (e: React.FormEvent) => {
@@ -185,15 +222,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
               {profile.name || 'User'}
             </h1>
             <button
-              onClick={() => {
-                setNameInput(profile.name || '');
-                setDobInput(profile.dob || '');
-                setAgeInput(userAge ? userAge.toString() : '24');
-                setProfessionInput(profile.profession || 'Salaried');
-                setEmailInput(profile.email || '');
-                setPhoneInput(profile.phone || '');
-                setIsEditingInfo(true);
-              }}
+              onClick={openEditModal}
               className="p-1.5 text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-xl transition-colors cursor-pointer"
               title="Edit Profile"
             >
@@ -201,13 +230,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             </button>
           </div>
           <div className="flex items-center justify-center gap-2 mt-1">
-            {profile.profession && (
+            {profile.profession ? (
               <span className="px-2.5 py-0.5 rounded-full bg-black dark:bg-white text-white dark:text-black text-[10px] font-black uppercase">
                 {profile.profession.toUpperCase()}
               </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 text-[10px] font-black uppercase">
+                NOT SET
+              </span>
             )}
             <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-              Age {userAge}{profile.memberSince ? ` • Member since ${profile.memberSince}` : ''}
+              {userAge !== 'Not Set' ? `Age ${userAge}` : 'Age Not Set'}{profile.memberSince ? ` • Member since ${profile.memberSince}` : ''}
             </span>
           </div>
         </div>
@@ -230,12 +263,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
 
             <form onSubmit={handleSaveInfo} className="space-y-4">
               <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Full Name *</label>
+                <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Full Name</label>
                 <input
                   type="text"
                   required
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
+                  placeholder="Your Name"
                   className="w-full px-4 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white"
                 />
               </div>
@@ -251,7 +285,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
                       setDobInput(e.target.value);
                       if (e.target.value) {
                         const calculated = calculateAge(e.target.value);
-                        setAgeInput(calculated.toString());
+                        setAgeInput(calculated !== 'Not Set' ? calculated.toString() : '');
                       }
                     }}
                     className="w-full px-3 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white cursor-pointer"
@@ -259,12 +293,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Profession *</label>
+                  <label className="block text-xs font-black text-black dark:text-neutral-300 mb-1">Profession</label>
                   <select
                     value={professionInput}
                     onChange={(e) => setProfessionInput(e.target.value as UserProfession)}
                     className="w-full px-3 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-bold text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] focus:border-black dark:focus:border-white cursor-pointer"
                   >
+                    <option value="" className="bg-white dark:bg-[#141B2A]">Select Profession</option>
                     <option value="Salaried" className="bg-white dark:bg-[#141B2A]">💼 Salaried</option>
                     <option value="Student" className="bg-white dark:bg-[#141B2A]">🎓 Student</option>
                     <option value="Freelancer" className="bg-white dark:bg-[#141B2A]">💻 Freelancer</option>
@@ -325,15 +360,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
           </h2>
           <button
             type="button"
-            onClick={() => {
-              setNameInput(profile.name || '');
-              setDobInput(profile.dob || '');
-              setAgeInput(userAge ? userAge.toString() : '24');
-              setProfessionInput(profile.profession || 'Salaried');
-              setEmailInput(profile.email || '');
-              setPhoneInput(profile.phone || '');
-              setIsEditingInfo(true);
-            }}
+            onClick={openEditModal}
             className="text-xs font-black text-[#0066FF] dark:text-[#60A5FA] hover:underline cursor-pointer"
           >
             Edit
@@ -349,7 +376,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             <div>
               <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Age</p>
               <p className="text-sm font-black text-black dark:text-white">
-                {userAge ? `${userAge} years old` : 'Not set'}
+                {userAge !== 'Not Set' ? `${userAge} years old` : 'Not Set'}
                 {profile.dob ? ` (DOB: ${profile.dob})` : ''}
               </p>
             </div>
@@ -365,7 +392,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             <div>
               <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Profession</p>
               <p className="text-sm font-black text-black dark:text-white">
-                {profile.profession || 'Not set'}
+                {profile.profession || 'Not Set'}
               </p>
             </div>
           </div>
@@ -380,7 +407,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             <div className="truncate">
               <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Email Address</p>
               <p className="text-sm font-black text-black dark:text-white truncate">
-                {profile.email || 'Not configured'}
+                {profile.email || 'Not Set'}
               </p>
             </div>
           </div>
@@ -395,7 +422,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
             <div>
               <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Phone Number</p>
               <p className="text-sm font-black text-black dark:text-white">
-                {profile.phone || 'Not configured'}
+                {profile.phone || 'Not Set'}
               </p>
             </div>
           </div>

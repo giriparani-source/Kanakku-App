@@ -176,9 +176,10 @@ export const DEFAULT_INCOME_SOURCES: IncomeSource[] = [
 ];
 
 export const INITIAL_PROFILE: UserProfile = {
-  name: 'User',
-  age: 24,
-  profession: 'Salaried',
+  name: '',
+  age: '',
+  dob: '',
+  profession: '',
   email: '',
   phone: '',
   memberSince: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),

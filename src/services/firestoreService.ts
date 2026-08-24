@@ -65,9 +65,12 @@ export const subscribeToProfile = (onUpdate: (profile: UserProfile | null) => vo
       if (snapshot.exists()) {
         const data = snapshot.data();
         onUpdate({
-          name: data.name || 'User',
+          name: data.name || '',
           email: data.email || '',
           phone: data.phone || '',
+          dob: data.dob || '',
+          age: data.age !== undefined && data.age !== '' ? data.age : undefined,
+          profession: data.profession || '',
           memberSince: data.memberSince || '',
           avatarUrl: data.avatarUrl || '',
         });
@@ -216,23 +219,29 @@ export const subscribeToTransactions = (onUpdate: (transactions: Transaction[]) 
   );
 };
 
-// ==========================================
-// ASYNC FIRESTORE EXPLICIT WRITES
-// ==========================================
-
-export const saveProfileToFirestore = async (profile: UserProfile): Promise<void> => {
+// Save / update profile in Firestore 'users' collection
+export const updateUserProfile = async (profile: Partial<UserProfile>): Promise<void> => {
   try {
     const clean = sanitizeData({
       ...profile,
       updatedAt: new Date().toISOString(),
       timestamp: Date.now(),
     });
+    // 1. Update singleton/active user doc
     await setDoc(doc(db, 'users', USER_DOC_ID), clean, { merge: true });
-    console.log('🔥 [Firestore] Profile saved to collection "users"');
+
+    // 2. If email exists, also update dedicated user doc
+    if (profile.email) {
+      const docId = profile.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(doc(db, 'users', docId), clean, { merge: true });
+    }
+    console.log('🔥 [Firestore] Profile updated in collection "users"');
   } catch (err) {
-    console.error('❌ Error saving profile to Firestore:', err);
+    console.error('❌ Error updating profile in Firestore:', err);
   }
 };
+
+export const saveProfileToFirestore = updateUserProfile;
 
 export const saveSettingsToFirestore = async (settings: AppSettings): Promise<void> => {
   try {
