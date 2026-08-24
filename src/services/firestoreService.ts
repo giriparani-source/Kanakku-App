@@ -6,6 +6,8 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  query,
+  where,
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
@@ -20,6 +22,7 @@ import {
   UserProfile,
   AppSettings,
   CategoryBudget,
+  CurrencyCode,
 } from '../types';
 
 // Helper to remove any undefined or non-serializable fields
@@ -378,6 +381,180 @@ export const clearAllTransactionsFromFirestore = async (): Promise<void> => {
   }
 };
 
+// Check if a user with exact match of BOTH email and phone exists in the 'users' collection
+export const checkUserExists = async (
+  email: string,
+  phone: string
+): Promise<{ exists: boolean; userId?: string; profile?: UserProfile }> => {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.trim();
+
+    if (!cleanEmail || !cleanPhone) {
+      return { exists: false };
+    }
+
+    const usersRef = collection(db, 'users');
+
+    // 1. Query 'users' collection by email
+    const qEmail = query(usersRef, where('email', '==', cleanEmail));
+    const snap = await getDocs(qEmail);
+    if (!snap.empty) {
+      for (const d of snap.docs) {
+        const data = d.data();
+        const dEmail = (data.email || '').trim().toLowerCase();
+        const dPhone = (data.phone || '').trim();
+        const phoneDigits = cleanPhone.replace(/\D/g, '');
+        const dPhoneDigits = dPhone.replace(/\D/g, '');
+
+        const isExactEmail = dEmail === cleanEmail;
+        const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
+
+        if (isExactEmail && isExactPhone) {
+          return {
+            exists: true,
+            userId: d.id,
+            profile: data as UserProfile,
+          };
+        }
+      }
+    }
+
+    // 2. Query 'users' collection by phone
+    const qPhone = query(usersRef, where('phone', '==', cleanPhone));
+    const snapPhone = await getDocs(qPhone);
+    if (!snapPhone.empty) {
+      for (const d of snapPhone.docs) {
+        const data = d.data();
+        const dEmail = (data.email || '').trim().toLowerCase();
+        const dPhone = (data.phone || '').trim();
+        const phoneDigits = cleanPhone.replace(/\D/g, '');
+        const dPhoneDigits = dPhone.replace(/\D/g, '');
+
+        const isExactEmail = dEmail === cleanEmail;
+        const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
+
+        if (isExactEmail && isExactPhone) {
+          return {
+            exists: true,
+            userId: d.id,
+            profile: data as UserProfile,
+          };
+        }
+      }
+    }
+
+    // 3. Fallback scan of 'users' collection (e.g. singleton doc 'default_user' or unindexed format)
+    const allUsersSnap = await getDocs(usersRef);
+    for (const d of allUsersSnap.docs) {
+      const data = d.data();
+      const dEmail = (data.email || '').trim().toLowerCase();
+      const dPhone = (data.phone || '').trim();
+
+      const isExactEmail = dEmail === cleanEmail;
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      const dPhoneDigits = dPhone.replace(/\D/g, '');
+      const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
+
+      if (isExactEmail && isExactPhone) {
+        return {
+          exists: true,
+          userId: d.id,
+          profile: data as UserProfile,
+        };
+      }
+    }
+
+    return { exists: false };
+  } catch (err) {
+    console.error('❌ Error checking user existence in Firestore:', err);
+    return { exists: false };
+  }
+};
+
+// Fetch all Firestore documents for restoring an existing account
+export const fetchAllFirestoreData = async (): Promise<{
+  profile?: UserProfile;
+  settings?: AppSettings;
+  categories?: ExpenseCategory[];
+  locations?: MoneyLocation[];
+  incomeSources?: IncomeSource[];
+  budgets?: CategoryBudget[];
+  transactions?: Transaction[];
+} | null> => {
+  try {
+    const [profileSnap, settingsSnap, catSnap, locSnap, incSnap, budgetSnap, txSnap] =
+      await Promise.all([
+        getDoc(doc(db, 'users', USER_DOC_ID)),
+        getDoc(doc(db, 'settings', SETTINGS_DOC_ID)),
+        getDocs(CATEGORIES_COLLECTION),
+        getDocs(LOCATIONS_COLLECTION),
+        getDocs(INCOME_SOURCES_COLLECTION),
+        getDoc(doc(db, 'budgets', BUDGETS_DOC_ID)),
+        getDocs(TRANSACTIONS_COLLECTION),
+      ]);
+
+    const profile = profileSnap.exists() ? (profileSnap.data() as UserProfile) : undefined;
+    const settings = settingsSnap.exists() ? (settingsSnap.data() as AppSettings) : undefined;
+
+    let categories: ExpenseCategory[] = [];
+    if (!catSnap.empty) {
+      catSnap.forEach((d) => {
+        if (d.id !== CATEGORIES_ORDER_DOC_ID) categories.push(d.data() as ExpenseCategory);
+      });
+      const meta = catSnap.docs.find((d) => d.id === CATEGORIES_ORDER_DOC_ID);
+      if (meta && meta.exists() && Array.isArray(meta.data()?.list)) {
+        categories = meta.data().list;
+      }
+    }
+
+    let locations: MoneyLocation[] = [];
+    if (!locSnap.empty) {
+      locSnap.forEach((d) => {
+        if (d.id !== LOCATIONS_ORDER_DOC_ID) locations.push(d.data() as MoneyLocation);
+      });
+      const meta = locSnap.docs.find((d) => d.id === LOCATIONS_ORDER_DOC_ID);
+      if (meta && meta.exists() && Array.isArray(meta.data()?.list)) {
+        locations = meta.data().list;
+      }
+    }
+
+    let incomeSources: IncomeSource[] = [];
+    if (!incSnap.empty) {
+      incSnap.forEach((d) => {
+        if (d.id !== INCOME_SOURCES_ORDER_DOC_ID) incomeSources.push(d.data() as IncomeSource);
+      });
+      const meta = incSnap.docs.find((d) => d.id === INCOME_SOURCES_ORDER_DOC_ID);
+      if (meta && meta.exists() && Array.isArray(meta.data()?.list)) {
+        incomeSources = meta.data().list;
+      }
+    }
+
+    const budgets = budgetSnap.exists() ? (budgetSnap.data()?.list as CategoryBudget[]) : undefined;
+
+    const transactions: Transaction[] = [];
+    if (!txSnap.empty) {
+      txSnap.forEach((d) => {
+        transactions.push(d.data() as Transaction);
+      });
+      transactions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    }
+
+    return {
+      profile,
+      settings,
+      categories: categories.length > 0 ? categories : undefined,
+      locations: locations.length > 0 ? locations : undefined,
+      incomeSources: incomeSources.length > 0 ? incomeSources : undefined,
+      budgets,
+      transactions,
+    };
+  } catch (err) {
+    console.error('❌ Error fetching all data from Firestore:', err);
+    return null;
+  }
+};
+
 // Initial Cloud Sync / Migration Helper
 export const syncAllDataToFirestore = async (data: {
   profile: UserProfile;
@@ -404,3 +581,59 @@ export const syncAllDataToFirestore = async (data: {
     console.error('❌ Error syncing all data to Firestore:', err);
   }
 };
+
+export interface NewUserData {
+  name: string;
+  email: string;
+  phone: string;
+  dob?: string;
+  age?: number | string;
+  profession?: string;
+  avatarUrl?: string;
+  startingBalance?: number;
+  currency?: CurrencyCode;
+  locationsWithBalances?: {
+    id: string;
+    name: string;
+    type: MoneyLocation['type'];
+    initialBalance: number;
+    isSavings?: boolean;
+  }[];
+}
+
+// Stores the new user document in the Firestore 'users' collection
+export const saveNewUser = async (
+  userData: NewUserData
+): Promise<{ success: boolean; id?: string }> => {
+  try {
+    const cleanUser = sanitizeData({
+      name: (userData.name || 'User').trim(),
+      email: (userData.email || '').trim().toLowerCase(),
+      phone: (userData.phone || '').trim(),
+      dob: userData.dob || '',
+      age: userData.age !== undefined ? userData.age : 24,
+      profession: userData.profession || 'Salaried',
+      avatarUrl: userData.avatarUrl || '',
+      startingBalance: Math.max(0, Number(userData.startingBalance) || 0),
+      currency: userData.currency || 'INR',
+      memberSince: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      timestamp: Date.now(),
+    });
+
+    // 1. Write to 'default_user' doc in 'users' collection for immediate sync
+    await setDoc(doc(db, 'users', USER_DOC_ID), cleanUser, { merge: true });
+
+    // 2. Also write a dedicated doc in 'users' collection keyed by email
+    const docId = cleanUser.email ? cleanUser.email.replace(/[^a-zA-Z0-9]/g, '_') : 'user_' + Date.now();
+    await setDoc(doc(db, 'users', docId), cleanUser, { merge: true });
+
+    console.log(`🔥 [Firestore] New user "${cleanUser.name}" saved to "users" collection (id: ${docId})`);
+    return { success: true, id: docId };
+  } catch (err) {
+    console.error('❌ Error saving new user to Firestore:', err);
+    return { success: false };
+  }
+};
+

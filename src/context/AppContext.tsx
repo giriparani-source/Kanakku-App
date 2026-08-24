@@ -71,12 +71,23 @@ interface AppContextType {
   completeOnboarding: (data?: {
     name?: string;
     age?: number | string;
+    dob?: string;
     profession?: UserProfession;
     currency?: CurrencyCode;
     email?: string;
     phone?: string;
     avatarUrl?: string;
+    startingBalance?: number;
     locationsWithBalances?: { id: string; name: string; type: MoneyLocation['type']; initialBalance: number; isSavings?: boolean }[];
+  }) => Promise<void>;
+  restoreExistingUserData: (data: {
+    profile?: UserProfile;
+    settings?: AppSettings;
+    categories?: ExpenseCategory[];
+    locations?: MoneyLocation[];
+    incomeSources?: IncomeSource[];
+    budgets?: CategoryBudget[];
+    transactions?: Transaction[];
   }) => Promise<void>;
   resetOnboarding: () => void;
 
@@ -852,11 +863,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const completeOnboarding = async (data?: {
     name?: string;
     age?: number | string;
+    dob?: string;
     profession?: UserProfession;
     currency?: CurrencyCode;
     email?: string;
     phone?: string;
     avatarUrl?: string;
+    startingBalance?: number;
     locationsWithBalances?: {
       id: string;
       name: string;
@@ -872,6 +885,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updatedProfile: UserProfile = {
         name: cleanName,
         age: data?.age !== undefined ? data.age : (profile.age || 24),
+        dob: data?.dob || profile.dob || '',
         profession: data?.profession || profile.profession || 'Salaried',
         email: (data?.email || profile.email || '').trim(),
         phone: (data?.phone || profile.phone || '').trim(),
@@ -879,7 +893,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         avatarUrl: data?.avatarUrl || profile.avatarUrl || INITIAL_PROFILE.avatarUrl,
       };
 
-      const updatedLocations: MoneyLocation[] = (data?.locationsWithBalances || locations).map((loc) => {
+      let sourceLocations = data?.locationsWithBalances;
+      if (!sourceLocations && data?.startingBalance !== undefined) {
+        const bal = Math.max(0, Number(data.startingBalance) || 0);
+        sourceLocations = locations.map((loc) => {
+          if (loc.id === 'loc-bank-primary' || loc.type === 'bank') {
+            return {
+              id: loc.id,
+              name: loc.name,
+              type: loc.type,
+              initialBalance: bal,
+              isSavings: loc.isSavings,
+            };
+          }
+          return {
+            id: loc.id,
+            name: loc.name,
+            type: loc.type,
+            initialBalance: 0,
+            isSavings: loc.isSavings,
+          };
+        });
+      }
+
+      const updatedLocations: MoneyLocation[] = (sourceLocations || locations).map((loc) => {
         const existing = DEFAULT_LOCATIONS.find((d) => d.id === loc.id) || {
           color: loc.isSavings ? '#FF9500' : loc.type === 'bank' ? '#0066FF' : loc.type === 'wallet' ? '#8B5CF6' : '#00C853',
           icon: loc.isSavings ? 'savings' : loc.type === 'bank' ? 'account_balance' : loc.type === 'wallet' ? 'account_balance_wallet' : 'payments',
@@ -937,6 +974,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (err) {
       console.error('Error completing onboarding:', err);
+      setIsOnboarded(true);
+      setActiveTab('home');
+    }
+  };
+
+  const restoreExistingUserData = async (data: {
+    profile?: UserProfile;
+    settings?: AppSettings;
+    categories?: ExpenseCategory[];
+    locations?: MoneyLocation[];
+    incomeSources?: IncomeSource[];
+    budgets?: CategoryBudget[];
+    transactions?: Transaction[];
+  }) => {
+    try {
+      const restoredProfile: UserProfile = data.profile || profile;
+      const restoredSettings: AppSettings = data.settings || settings;
+      const restoredCategories: ExpenseCategory[] = data.categories && data.categories.length > 0 ? data.categories : categories;
+      const restoredLocations: MoneyLocation[] = data.locations && data.locations.length > 0 ? data.locations : locations;
+      const restoredSources: IncomeSource[] = data.incomeSources && data.incomeSources.length > 0 ? data.incomeSources : incomeSources;
+      const restoredBudgets: CategoryBudget[] = data.budgets && data.budgets.length > 0 ? data.budgets : budgets;
+      const restoredTx: Transaction[] = data.transactions || [];
+
+      // 1. Update React State immediately
+      setProfile(restoredProfile);
+      setSettings(restoredSettings);
+      setCategories(restoredCategories);
+      setLocations(restoredLocations);
+      setIncomeSources(restoredSources);
+      setBudgets(restoredBudgets);
+      setTransactions(restoredTx);
+      setIsOnboarded(true);
+      setActiveTab('home');
+
+      // 2. Update Local Storage
+      localStorage.setItem(STORAGE_KEYS.ONBOARDED, 'true');
+      localStorage.setItem('hasCompletedOnboarding', 'true');
+      localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(restoredProfile));
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(restoredSettings));
+      localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(restoredCategories));
+      localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(restoredLocations));
+      localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(restoredSources));
+      localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(restoredBudgets));
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(restoredTx));
+
+      showToast(`Welcome back, ${restoredProfile.name || 'User'}! Account restored from Cloud.`);
+    } catch (err) {
+      console.error('Error restoring existing user data:', err);
       setIsOnboarded(true);
       setActiveTab('home');
     }
@@ -1097,6 +1182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         isOnboarded,
         completeOnboarding,
+        restoreExistingUserData,
         resetOnboarding,
 
         profile,

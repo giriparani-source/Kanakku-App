@@ -1,7 +1,41 @@
 import React, { useState, useRef } from 'react';
+import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import { useApp } from '../../context/AppContext';
-import { CurrencyCode, LocationType, UserProfession } from '../../types';
-import { fileToBase64 } from '../../utils/imageUtils';
+import { checkUserExists, fetchAllFirestoreData, saveNewUser } from '../../services/firestoreService';
+import { getCroppedCanvasImage } from '../../utils/imageUtils';
+import { DEFAULT_AVATAR } from '../../constants/data';
+import { CurrencyCode, UserProfession } from '../../types';
+
+// Helper to center a 1:1 aspect crop on image load
+function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: number = 1): Crop {
+  return centerCrop(
+    makeAspectCrop(
+      {
+        unit: '%',
+        width: 80,
+      },
+      aspect,
+      mediaWidth,
+      mediaHeight
+    ),
+    mediaWidth,
+    mediaHeight
+  );
+}
+
+// Calculate age from Date of Birth string (YYYY-MM-DD)
+function calculateAge(dobString: string): number {
+  if (!dobString) return 24;
+  const birthDate = new Date(dobString);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age >= 0 ? age : 24;
+}
 
 export const OnboardingView: React.FC = () => {
   const {
@@ -12,32 +46,57 @@ export const OnboardingView: React.FC = () => {
     locations,
     updateLocation,
     completeOnboarding,
+    restoreExistingUserData,
     setActiveTab,
     getCurrencySymbol,
-    formatMoney,
     showToast,
   } = useApp();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [userName, setUserName] = useState(profile.name || '');
-  const [userAge, setUserAge] = useState<string>(profile.age ? profile.age.toString() : '24');
-  const [userProfession, setUserProfession] = useState<UserProfession>(profile.profession || 'Salaried');
-  const [userEmail, setUserEmail] = useState(profile.email || '');
-  const [userPhone, setUserPhone] = useState(profile.phone || '');
-  const [userAvatar, setUserAvatar] = useState(profile.avatarUrl);
-  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>(settings.currency || 'INR');
-  const [isLaunching, setIsLaunching] = useState(false);
+  // Step-based state: currentTab from 1 to 4
+  const [currentTab, setCurrentTab] = useState<1 | 2 | 3 | 4>(1);
 
+  // ==========================================
+  // TAB 1 STATE: Email & Phone
+  // ==========================================
+  const [email, setEmail] = useState(profile.email || '');
+  const [phone, setPhone] = useState(profile.phone || '');
+  const [isCheckingAccount, setIsCheckingAccount] = useState(false);
+  const [tab1Error, setTab1Error] = useState<string | null>(null);
+
+  // ==========================================
+  // TAB 2 STATE: Profile Setup (Clean initial values)
+  // ==========================================
+  const [fullName, setFullName] = useState('');
+  const [dob, setDob] = useState('');
+  const [profession, setProfession] = useState<UserProfession>('Salaried');
+  const [avatar, setAvatar] = useState<string>(DEFAULT_AVATAR);
+  const [tab2Error, setTab2Error] = useState<string | null>(null);
+
+  // Cropper State (react-image-crop)
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string>('');
+  const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Initial balances map
+  // ==========================================
+  // TAB 3 STATE: Starting Balances & Currency
+  // ==========================================
+  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>(settings.currency || 'INR');
   const [balances, setBalances] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     locations.forEach((loc) => {
-      map[loc.id] = loc.initialBalance.toString();
+      map[loc.id] = '0';
     });
     return map;
   });
+  const [tab3Error, setTab3Error] = useState<string | null>(null);
+
+  // ==========================================
+  // TAB 4 STATE: Launching
+  // ==========================================
+  const [isLaunching, setIsLaunching] = useState(false);
 
   const currencies: { code: CurrencyCode; label: string; symbol: string }[] = [
     { code: 'INR', label: 'Indian Rupee', symbol: '₹' },
@@ -47,403 +106,988 @@ export const OnboardingView: React.FC = () => {
     { code: 'JPY', label: 'Japanese Yen', symbol: '¥' },
   ];
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const tabList = [
+    { num: 1, label: 'Account', icon: 'badge' },
+    { num: 2, label: 'Profile', icon: 'person' },
+    { num: 3, label: 'Balances', icon: 'account_balance_wallet' },
+    { num: 4, label: 'Launch', icon: 'rocket_launch' },
+  ];
 
-    try {
-      const base64 = await fileToBase64(file);
-      setUserAvatar(base64);
-      showToast('Profile photo updated');
-    } catch (err) {
-      console.error('Error processing photo:', err);
-      showToast('Failed to process image');
-    }
-  };
+  const currentCurrencySymbol = getCurrencySymbol(selectedCurrency);
+
+  // Sum of all individual account balances
+  const totalStartingNetWorth = locations.reduce((sum, loc) => {
+    const rawVal = balances[loc.id] ?? '0';
+    const parsed = parseFloat(rawVal) || 0;
+    return sum + parsed;
+  }, 0);
 
   const handleBalanceChange = (locId: string, val: string) => {
     setBalances((prev) => ({ ...prev, [locId]: val }));
   };
 
-  const handleStep1Submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateProfile({
-      name: userName.trim() || 'User',
-      age: parseInt(userAge) || 24,
-      profession: userProfession,
-      email: userEmail.trim(),
-      phone: userPhone.trim(),
-      avatarUrl: userAvatar,
+  const handleQuickAdd = (locId: string, delta: number) => {
+    setBalances((prev) => {
+      const current = parseFloat(prev[locId] || '0') || 0;
+      const next = Math.max(0, current + delta);
+      return { ...prev, [locId]: next.toString() };
     });
-    updateSettings({ currency: selectedCurrency });
-    setStep(2);
   };
 
-  const handleStep2Submit = (e: React.FormEvent) => {
+  // ==========================================
+  // TAB 1: Continue Handler (User Check)
+  // ==========================================
+  const handleTab1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTab1Error(null);
+
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+
+    if (!cleanEmail) {
+      setTab1Error('Please enter your email address.');
+      return;
+    }
+
+    if (!cleanPhone) {
+      setTab1Error('Please enter your phone number.');
+      return;
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(cleanEmail)) {
+      setTab1Error('Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setIsCheckingAccount(true);
+
+      console.log(`Checking Firestore for user: email=${cleanEmail}, phone=${cleanPhone}`);
+      const userCheckResult = await checkUserExists(cleanEmail, cleanPhone);
+
+      if (userCheckResult.exists) {
+        // User exists: Fetch their data, restore to local state, redirect to main app dashboard
+        console.log('User exists in Firestore. Fetching data to restore...');
+        showToast('Account found! Restoring your financial records...');
+
+        const existingData = await fetchAllFirestoreData();
+
+        if (existingData) {
+          await restoreExistingUserData({
+            ...existingData,
+            profile: existingData.profile || userCheckResult.profile || {
+              name: 'User',
+              email: cleanEmail,
+              phone: cleanPhone,
+              memberSince: '',
+              avatarUrl: '',
+            },
+          });
+        } else {
+          await restoreExistingUserData({
+            profile: userCheckResult.profile || {
+              name: 'User',
+              email: cleanEmail,
+              phone: cleanPhone,
+              memberSince: '',
+              avatarUrl: '',
+            },
+          });
+        }
+
+        // Redirect straight to dashboard
+        setActiveTab('home');
+      } else {
+        // User does not exist: MUST explicitly clear/reset all local states for Avatar, Name, DOB, and Profession to empty values before moving to Tab 2
+        console.log('User does not exist in Firestore. Explicitly clearing local states for clean profile setup...');
+        setFullName('');
+        setDob('');
+        setProfession('Salaried');
+        setAvatar(DEFAULT_AVATAR);
+        setTab2Error(null);
+        setTab3Error(null);
+
+        // Reset balances map to 0
+        const zeroBalances: Record<string, string> = {};
+        locations.forEach((loc) => {
+          zeroBalances[loc.id] = '0';
+        });
+        setBalances(zeroBalances);
+
+        // Reset profile in context so no crossover data remains
+        updateProfile({
+          name: '',
+          email: cleanEmail,
+          phone: cleanPhone,
+          dob: '',
+          age: 24,
+          profession: 'Salaried',
+          avatarUrl: DEFAULT_AVATAR,
+        });
+
+        showToast('New user — let\'s set up your profile!');
+        setCurrentTab(2);
+      }
+    } catch (err) {
+      console.error('Error checking user existence:', err);
+      setFullName('');
+      setDob('');
+      setProfession('Salaried');
+      setAvatar(DEFAULT_AVATAR);
+      setTab1Error('Database check notice. Continuing to clean profile setup...');
+      setTimeout(() => {
+        setCurrentTab(2);
+      }, 800);
+    } finally {
+      setIsCheckingAccount(false);
+    }
+  };
+
+  // ==========================================
+  // TAB 2: Image Selection & Cropping Handlers
+  // ==========================================
+  const handleSelectImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset input so re-selecting same image works
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      setCropSrc(reader.result?.toString() || '');
+      setIsCropModalOpen(true);
+    });
+    reader.readAsDataURL(file);
+  };
+
+  const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget;
+    setCrop(centerAspectCrop(width, height, 1));
+  };
+
+  const handleApplyCroppedImage = () => {
+    if (!imgRef.current || !completedCrop) {
+      setIsCropModalOpen(false);
+      return;
+    }
+
+    try {
+      const croppedBase64 = getCroppedCanvasImage(imgRef.current, completedCrop, 300);
+      if (croppedBase64) {
+        setAvatar(croppedBase64);
+        showToast('Profile photo cropped & updated!');
+      }
+    } catch (err) {
+      console.error('Error cropping image:', err);
+      showToast('Could not process crop. Please try again.');
+    } finally {
+      setIsCropModalOpen(false);
+    }
+  };
+
+  // ==========================================
+  // TAB 2: Next Handler (Save Profile Details)
+  // ==========================================
+  const handleTab2Submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setTab2Error(null);
+
+    const cleanName = fullName.trim();
+    if (!cleanName) {
+      setTab2Error('Please enter your full name.');
+      return;
+    }
+
+    if (!dob) {
+      setTab2Error('Please select your date of birth.');
+      return;
+    }
+
+    const calculatedAge = calculateAge(dob);
+
+    // Save profile details to local onboarding state / context
+    updateProfile({
+      name: cleanName,
+      dob: dob,
+      age: calculatedAge,
+      profession: profession,
+      avatarUrl: avatar,
+      email: email.trim(),
+      phone: phone.trim(),
+    });
+
+    showToast('Profile details saved!');
+    setCurrentTab(3);
+  };
+
+  // ==========================================
+  // TAB 3: Next Handler (Save Starting Balances & Move to Tab 4)
+  // ==========================================
+  const handleTab3Submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setTab3Error(null);
+
+    // Save currency to settings
+    updateSettings({ currency: selectedCurrency });
+
+    // Update each location initialBalance in state
     locations.forEach((loc) => {
-      const rawVal = balances[loc.id];
+      const rawVal = balances[loc.id] ?? '0';
       const parsed = Math.max(0, parseFloat(rawVal) || 0);
       updateLocation(loc.id, { initialBalance: parsed });
     });
-    setStep(3);
+
+    showToast('Starting balances saved!');
+    // Move to Step 4 (Review & Launch)
+    setCurrentTab(4);
   };
 
-  const handleFinalLaunch = async () => {
+  // ==========================================
+  // TAB 4: Final Launch Handler (Save to Firestore & Open Dashboard)
+  // ==========================================
+  const handleLaunchApp = async () => {
     try {
       setIsLaunching(true);
-      console.log('🚀 Initializing user dashboard and cloud persistence...');
+      console.log('🚀 Saving new user with calibrated balances and launching dashboard...');
+
+      const cleanName = fullName.trim() || 'User';
+      const cleanEmail = email.trim();
+      const cleanPhone = phone.trim();
+      const calculatedAge = calculateAge(dob);
 
       const locationsWithBalances = locations.map((loc) => ({
         id: loc.id,
         name: loc.name,
         type: loc.type,
-        initialBalance: Math.max(0, parseFloat(balances[loc.id]) || 0),
+        initialBalance: Math.max(0, parseFloat(balances[loc.id] || '0') || 0),
         isSavings: loc.isSavings,
       }));
 
-      await completeOnboarding({
-        name: userName.trim() || profile.name || 'User',
-        age: parseInt(userAge) || 24,
-        profession: userProfession,
-        email: userEmail.trim(),
-        phone: userPhone.trim(),
-        avatarUrl: userAvatar,
+      // 1. Call saveNewUser to securely write data to Firestore 'users' collection
+      await saveNewUser({
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        dob: dob,
+        age: calculatedAge,
+        profession: profession,
+        avatarUrl: avatar,
+        startingBalance: totalStartingNetWorth,
         currency: selectedCurrency,
         locationsWithBalances,
       });
 
+      // 2. Complete onboarding in local context & sync all app state
+      await completeOnboarding({
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        dob: dob,
+        age: calculatedAge,
+        profession: profession,
+        avatarUrl: avatar,
+        currency: selectedCurrency,
+        startingBalance: totalStartingNetWorth,
+        locationsWithBalances,
+      });
+
+      showToast(`Welcome to Kanakku, ${cleanName}! Your dashboard is live.`);
       setActiveTab('home');
-      console.log('✅ Dashboard launched successfully!');
-    } catch (error) {
-      console.error('Error during onboarding launch:', error);
+    } catch (err) {
+      console.error('Error during onboarding launch:', err);
+      showToast('Dashboard launched! (Local cache saved)');
       setActiveTab('home');
     } finally {
       setIsLaunching(false);
     }
   };
 
-  const totalStartingNetWorth = locations.reduce((sum, loc) => {
-    const rawVal = balances[loc.id];
-    const parsed = parseFloat(rawVal) || 0;
-    return sum + parsed;
-  }, 0);
+  const todayDateISO = new Date().toISOString().split('T')[0];
+  const computedAge = calculateAge(dob);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0B0F17] text-black dark:text-white flex items-center justify-center p-4 md:p-8 animate-fadeIn transition-colors">
-      <div className="w-full max-w-lg bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-[2.5rem] p-6 md:p-10 shadow-2xl space-y-6">
-        {/* Step Indicator */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-black text-black dark:text-white tracking-tight">Kanakku</span>
-            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-black dark:bg-white text-white dark:text-black">
-              Clean Setup
-            </span>
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B0F17] text-neutral-900 dark:text-white flex items-center justify-center p-4 md:p-8 animate-fadeIn transition-colors">
+      <div className="w-full max-w-xl bg-white dark:bg-[#141B2A] border border-neutral-200/80 dark:border-[#243048] rounded-[2.5rem] p-6 md:p-10 shadow-2xl space-y-6">
+        
+        {/* Header & 4-Tab Progress Bar */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-black dark:bg-white text-white dark:text-black flex items-center justify-center font-black shadow-md">
+                <span className="material-symbols-outlined text-xl">account_balance</span>
+              </div>
+              <div>
+                <span className="text-2xl font-black text-black dark:text-white tracking-tight">Kanakku</span>
+                <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 block -mt-1 tracking-wider uppercase">
+                  Finance Tracker
+                </span>
+              </div>
+            </div>
+            <div className="px-3 py-1 rounded-full bg-neutral-100 dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-[11px] font-black text-neutral-700 dark:text-neutral-300">
+              Tab {currentTab} of 4
+            </div>
           </div>
-          <div className="flex gap-1.5">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className={`w-7 h-1.5 rounded-full transition-all duration-300 ${
-                  step === s ? 'bg-black dark:bg-white w-10' : step > s ? 'bg-[#00C853]' : 'bg-neutral-300 dark:bg-neutral-700'
-                }`}
-              />
-            ))}
+
+          {/* Tab Progress Indicator */}
+          <div className="grid grid-cols-4 gap-2 pt-1">
+            {tabList.map((tab) => {
+              const isActive = currentTab === tab.num;
+              const isCompleted = currentTab > tab.num;
+
+              return (
+                <div key={tab.num} className="flex flex-col gap-1.5">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-300 ${
+                      isActive
+                        ? 'bg-black dark:bg-white'
+                        : isCompleted
+                        ? 'bg-[#00C853]'
+                        : 'bg-neutral-200 dark:bg-neutral-800'
+                    }`}
+                  />
+                  <div className="flex items-center justify-center">
+                    <span
+                      className={`text-[10px] font-black uppercase tracking-wider transition-colors ${
+                        isActive
+                          ? 'text-black dark:text-white'
+                          : isCompleted
+                          ? 'text-[#00C853]'
+                          : 'text-neutral-400 dark:text-neutral-600'
+                      }`}
+                    >
+                      {tab.label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* STEP 1: Personal Information, Avatar & Currency */}
-        {step === 1 && (
-          <form onSubmit={handleStep1Submit} className="space-y-5 animate-fadeIn">
-            <div>
-              <h2 className="text-xl md:text-2xl font-black text-black dark:text-white tracking-tight">
-                Welcome! Let's set up your profile.
+        {/* ========================================================================= */}
+        {/* TAB 1: Account Identification (Email Address & Phone Number)              */}
+        {/* ========================================================================= */}
+        {currentTab === 1 && (
+          <form onSubmit={handleTab1Submit} className="space-y-6 animate-fadeIn">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-[11px] font-bold">
+                <span className="material-symbols-outlined text-xs">verified_user</span>
+                <span>Step 1 • Cloud Verification</span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight pt-1">
+                Welcome to Kanakku
               </h2>
-              <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400 mt-0.5">
-                Tell us a little bit about yourself to personalize your budget.
+              <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
+                Enter your email address and phone number to verify or restore your account.
               </p>
             </div>
 
-            {/* Interactive Avatar Upload */}
-            <div className="flex flex-col items-center justify-center gap-2 pt-1 pb-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleAvatarChange}
-                className="hidden"
-              />
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="relative group cursor-pointer"
-              >
-                <div className="w-22 h-22 rounded-full overflow-hidden border-3 border-black dark:border-white shadow-lg bg-neutral-200 dark:bg-neutral-800 transition-transform group-hover:scale-105">
-                  <img
-                    src={userAvatar}
-                    alt="Profile Avatar"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                  <span className="material-symbols-outlined text-2xl font-black">photo_camera</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 p-1.5 rounded-full bg-black dark:bg-white text-white dark:text-black shadow-md border-2 border-white dark:border-[#141B2A] cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-xs font-black block">edit</span>
-                </button>
+            {/* Error Message Box */}
+            {tab1Error && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2.5 animate-fadeIn">
+                <span className="material-symbols-outlined text-lg shrink-0">error</span>
+                <span>{tab1Error}</span>
               </div>
-              <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                Click photo to change avatar (Gallery / Photos / Camera)
-              </span>
-            </div>
+            )}
 
-            <div className="space-y-3.5">
-              {/* Full Name */}
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                  Full Name *
+            {/* Form Inputs */}
+            <div className="space-y-4">
+              {/* Email Address Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                  Email Address *
                 </label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="e.g., Karthik Raja"
-                  className="w-full px-4 py-2.5 bg-white dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400"
-                />
-              </div>
-
-              {/* Age and Profession Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                    Age
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="120"
-                    value={userAge}
-                    onChange={(e) => setUserAge(e.target.value)}
-                    placeholder="24"
-                    className="w-full px-4 py-2.5 bg-white dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                    Profession *
-                  </label>
-                  <select
-                    value={userProfession}
-                    onChange={(e) => setUserProfession(e.target.value as UserProfession)}
-                    className="w-full px-3 py-2.5 bg-white dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
-                  >
-                    <option value="Student" className="bg-white dark:bg-[#141B2A]">Student</option>
-                    <option value="Salaried" className="bg-white dark:bg-[#141B2A]">Salaried</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Email & Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                    Email Address
-                  </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 text-lg pointer-events-none">
+                    mail
+                  </span>
                   <input
                     type="email"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    placeholder="karthik@example.com"
-                    className="w-full px-4 py-2.5 bg-white dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                    Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={userPhone}
-                    onChange={(e) => setUserPhone(e.target.value)}
-                    placeholder="+91 98765 43210"
-                    className="w-full px-4 py-2.5 bg-white dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400"
+                    required
+                    autoFocus
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="alex@example.com"
+                    disabled={isCheckingAccount}
+                    className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
                   />
                 </div>
               </div>
 
-              {/* Base Currency */}
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-300 uppercase tracking-wider mb-1">
-                  Base Currency
+              {/* Phone Number Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                  Phone Number *
                 </label>
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                  {currencies.map((c) => (
-                    <button
-                      key={c.code}
-                      type="button"
-                      onClick={() => setSelectedCurrency(c.code)}
-                      className={`py-2 px-1 rounded-xl text-center border transition-all cursor-pointer ${
-                        selectedCurrency === c.code
-                          ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white shadow-sm font-black'
-                          : 'bg-white dark:bg-[#1C263A] text-black dark:text-white border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      <span className="text-sm font-black block">{c.symbol} {c.code}</span>
-                    </button>
-                  ))}
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 text-lg pointer-events-none">
+                    call
+                  </span>
+                  <input
+                    type="tel"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    disabled={isCheckingAccount}
+                    className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
+                  />
                 </div>
               </div>
             </div>
 
+            {/* Cloud Auto-Restore Info Box */}
+            <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-[#1C263A]/60 border border-neutral-200/80 dark:border-[#2E3C56]/60 flex items-start gap-3">
+              <span className="material-symbols-outlined text-neutral-500 dark:text-neutral-400 text-lg mt-0.5">
+                cloud_sync
+              </span>
+              <p className="text-xs text-neutral-600 dark:text-neutral-400 font-medium leading-relaxed">
+                Existing users will automatically restore their cloud records and skip straight to the dashboard. New users will proceed to Step 2.
+              </p>
+            </div>
+
+            {/* Continue Button */}
             <button
               type="submit"
-              className="w-full bg-black dark:bg-white text-white dark:text-black font-black text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer mt-2"
+              disabled={isCheckingAccount}
+              className="w-full bg-black dark:bg-white text-white dark:text-black font-black text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2.5"
             >
-              Continue to Starting Balances →
+              {isCheckingAccount ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <span>Checking Account...</span>
+                </>
+              ) : (
+                <>
+                  <span>Continue</span>
+                  <span className="material-symbols-outlined text-base font-black">arrow_forward</span>
+                </>
+              )}
             </button>
           </form>
         )}
 
-        {/* STEP 2: Money Locations Initial Balances */}
-        {step === 2 && (
-          <form onSubmit={handleStep2Submit} className="space-y-6 animate-fadeIn">
-            <div>
-              <h2 className="text-xl md:text-2xl font-black text-black dark:text-white tracking-tight">
-                Starting Balances ({getCurrencySymbol()})
+        {/* ========================================================================= */}
+        {/* TAB 2: Personal Profile Setup (Avatar Crop, Full Name, DOB, Profession)   */}
+        {/* ========================================================================= */}
+        {currentTab === 2 && (
+          <form onSubmit={handleTab2Submit} className="space-y-6 animate-fadeIn">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
+                <span className="material-symbols-outlined text-xs">person</span>
+                <span>Step 2 • Profile Setup</span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight pt-1">
+                Personal Profile
               </h2>
-              <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400 mt-1">
-                Enter your current cash, bank, and wallet amounts to calibrate your initial Net Worth.
+              <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
+                Personalize your financial identity with your photo, name, and background.
               </p>
             </div>
 
-            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-              {locations.map((loc) => (
-                <div
-                  key={loc.id}
-                  className="p-3.5 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-between gap-3 shadow-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0"
-                      style={{ backgroundColor: loc.color || '#0066FF' }}
-                    >
-                      <span className="material-symbols-outlined text-lg">{loc.icon}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs font-black text-black dark:text-white block">{loc.name}</span>
-                      <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 capitalize">
-                        {loc.isSavings ? 'Savings Reserve' : loc.type}
-                      </span>
-                    </div>
-                  </div>
+            {/* Error Message Box */}
+            {tab2Error && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2.5 animate-fadeIn">
+                <span className="material-symbols-outlined text-lg shrink-0">error</span>
+                <span>{tab2Error}</span>
+              </div>
+            )}
 
-                  <div className="flex items-center gap-1 w-32">
-                    <span className="text-sm font-black text-black dark:text-white">{getCurrencySymbol()}</span>
+            {/* 1. Avatar Upload Section with 1:1 Cropping Trigger */}
+            <div className="flex flex-col items-center justify-center gap-2 pt-1 pb-1">
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handleSelectImageFile}
+                className="hidden"
+              />
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="relative group cursor-pointer"
+                title="Click to choose a photo and crop (1:1)"
+              >
+                <div className="w-24 h-24 rounded-full overflow-hidden border-3 border-black dark:border-white shadow-xl bg-neutral-100 dark:bg-neutral-800 transition-transform group-hover:scale-105">
+                  <img
+                    src={avatar}
+                    alt="User Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                  <span className="material-symbols-outlined text-2xl font-black">crop</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  className="absolute bottom-0 right-0 p-2 rounded-full bg-black dark:bg-white text-white dark:text-black shadow-lg border-2 border-white dark:border-[#141B2A] cursor-pointer hover:scale-110 transition-transform"
+                >
+                  <span className="material-symbols-outlined text-xs font-black block">photo_camera</span>
+                </button>
+              </div>
+
+              <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
+                Click photo to upload & crop to 1:1 aspect ratio
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {/* 2. Full Name Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                  Full Name *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 text-lg pointer-events-none">
+                    badge
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="e.g., Karthik Raja"
+                    className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* 3. Date of Birth & 4. Profession in a 2-Column Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Date of Birth */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                      Date of Birth *
+                    </label>
+                    {dob && (
+                      <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400">
+                        ({computedAge} yrs)
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
                     <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={balances[loc.id] ?? ''}
-                      onChange={(e) => handleBalanceChange(loc.id, e.target.value)}
-                      placeholder="0.00"
-                      className="w-full px-2 py-1.5 bg-[#F4F5F7] dark:bg-[#141B2A] rounded-xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] outline-none text-right tabular-nums"
+                      type="date"
+                      required
+                      max={todayDateISO}
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white transition-all cursor-pointer"
                     />
                   </div>
                 </div>
-              ))}
+
+                {/* Profession Dropdown */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                    Profession *
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={profession}
+                      onChange={(e) => setProfession(e.target.value as UserProfession)}
+                      className="w-full px-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white transition-all cursor-pointer appearance-none"
+                    >
+                      <option value="Salaried">💼 Salaried Employee</option>
+                      <option value="Student">🎓 Student</option>
+                      <option value="Freelancer">💻 Freelancer</option>
+                      <option value="Business">🏢 Business Owner</option>
+                      <option value="Self-Employed">🛠️ Self-Employed</option>
+                      <option value="Other">✨ Other</option>
+                    </select>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 pointer-events-none text-base">
+                      unfold_more
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Total Starting Net Worth Preview */}
-            <div className="p-4 rounded-2xl bg-black dark:bg-[#0B0F17] text-white flex justify-between items-center shadow-md">
-              <span className="text-xs font-black uppercase tracking-wider text-neutral-300">
-                Initial Net Worth
-              </span>
-              <span className="text-lg md:text-xl font-black tabular-nums text-[#00C853]">
-                {formatMoney(totalStartingNetWorth)}
-              </span>
-            </div>
-
-            <div className="flex gap-2">
+            {/* Navigation Buttons */}
+            <div className="flex items-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setStep(1)}
-                className="flex-1 py-3.5 rounded-2xl text-xs md:text-sm font-black bg-white dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                onClick={() => setCurrentTab(1)}
+                className="flex-1 py-4 rounded-2xl text-xs md:text-sm font-black bg-neutral-100 dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 ← Back
               </button>
               <button
                 type="submit"
-                className="flex-2 bg-black dark:bg-white text-white dark:text-black font-black text-xs md:text-sm py-3.5 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer"
+                className="flex-2 bg-black dark:bg-white text-white dark:text-black font-black text-xs md:text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer flex items-center justify-center gap-2"
               >
-                Review & Complete →
+                <span>Next (Balances)</span>
+                <span className="material-symbols-outlined text-base font-black">arrow_forward</span>
               </button>
             </div>
           </form>
         )}
 
-        {/* STEP 3: Ready to Launch */}
-        {step === 3 && (
+        {/* ========================================================================= */}
+        {/* TAB 3: Detailed Starting Balances & Currency Calibration                  */}
+        {/* ========================================================================= */}
+        {currentTab === 3 && (
+          <form onSubmit={handleTab3Submit} className="space-y-6 animate-fadeIn">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 text-[11px] font-bold">
+                <span className="material-symbols-outlined text-xs">account_balance_wallet</span>
+                <span>Step 3 • Starting Balances</span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight pt-1">
+                Starting Balances ({currentCurrencySymbol})
+              </h2>
+              <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
+                Choose your base currency and calibrate your cash, bank, savings, and wallet balances.
+              </p>
+            </div>
+
+            {/* Error Message Box */}
+            {tab3Error && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2.5 animate-fadeIn">
+                <span className="material-symbols-outlined text-lg shrink-0">error</span>
+                <span>{tab3Error}</span>
+              </div>
+            )}
+
+            {/* 1. Base Currency Selector Section */}
+            <div className="space-y-2">
+              <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                Select Base Currency *
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {currencies.map((c) => {
+                  const isSelected = selectedCurrency === c.code;
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => setSelectedCurrency(c.code)}
+                      className={`py-2.5 px-1 rounded-2xl text-center border transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                        isSelected
+                          ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white shadow-lg font-black scale-105'
+                          : 'bg-neutral-50 dark:bg-[#1C263A] text-neutral-800 dark:text-neutral-200 border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-100 dark:hover:bg-neutral-800 font-bold'
+                      }`}
+                    >
+                      <span className="text-sm font-black">{c.symbol}</span>
+                      <span className="text-[10px] font-black">{c.code}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Detailed Account Numeric Inputs with Quick-Add Chips */}
+            <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
+              {locations.map((loc) => (
+                <div
+                  key={loc.id}
+                  className="p-4 rounded-2xl bg-neutral-50 dark:bg-[#1C263A] border border-neutral-200/80 dark:border-[#2E3C56] shadow-sm space-y-2.5"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0"
+                        style={{ backgroundColor: loc.color || '#0066FF' }}
+                      >
+                        <span className="material-symbols-outlined text-lg">{loc.icon}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs font-black text-black dark:text-white block">
+                          {loc.name}
+                        </span>
+                        <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 capitalize">
+                          {loc.isSavings ? 'Savings Reserve' : loc.institution || loc.type}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Numeric Input with Currency Symbol */}
+                    <div className="flex items-center gap-1 w-36">
+                      <span className="text-sm font-black text-neutral-600 dark:text-neutral-300">
+                        {currentCurrencySymbol}
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={balances[loc.id] ?? '0'}
+                        onChange={(e) => handleBalanceChange(loc.id, e.target.value)}
+                        placeholder="0.00"
+                        className="w-full px-2.5 py-2 bg-white dark:bg-[#141B2A] rounded-xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white text-right tabular-nums"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick-Add Amount Chips */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 border-t border-neutral-200/60 dark:border-[#2E3C56]/60">
+                    <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 mr-1">Quick:</span>
+                    {[500, 2000, 5000, 25000, 50000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => handleQuickAdd(loc.id, amt)}
+                        className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#141B2A] hover:bg-neutral-200 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-[#2E3C56] text-[10px] font-black text-neutral-700 dark:text-neutral-300 cursor-pointer transition-colors shadow-2xs"
+                      >
+                        +{currentCurrencySymbol}{amt.toLocaleString()}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => handleBalanceChange(loc.id, '0')}
+                      className="px-2 py-0.5 rounded-lg bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-[10px] font-black text-neutral-600 dark:text-neutral-400 cursor-pointer transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 3. Prominent INITIAL NET WORTH Total Section */}
+            <div className="p-4.5 rounded-2xl bg-black dark:bg-[#0B0F17] border border-neutral-800 dark:border-[#1F293D] text-white flex justify-between items-center shadow-xl">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#00C853] text-lg">account_balance</span>
+                <span className="text-xs font-black uppercase tracking-wider text-neutral-300">
+                  INITIAL NET WORTH
+                </span>
+              </div>
+              <span className="text-xl md:text-2xl font-black tabular-nums text-[#00C853] drop-shadow-[0_0_8px_rgba(0,200,83,0.35)]">
+                {currentCurrencySymbol}{totalStartingNetWorth.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+
+            {/* 4. Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCurrentTab(2)}
+                className="flex-1 py-4 rounded-2xl text-xs md:text-sm font-black bg-neutral-100 dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                type="submit"
+                className="flex-2 bg-black dark:bg-white text-white dark:text-black font-black text-xs md:text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Review & Complete</span>
+                <span className="material-symbols-outlined text-base font-black">arrow_forward</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: Ready to Go / All Set Success Screen                              */}
+        {/* ========================================================================= */}
+        {currentTab === 4 && (
           <div className="space-y-6 text-center animate-fadeIn">
-            <div className="w-16 h-16 rounded-full bg-[#00C853]/15 text-[#00C853] flex items-center justify-center mx-auto shadow-inner">
-              <span className="material-symbols-outlined text-4xl font-black">verified</span>
+            {/* Animated Celebration Icon */}
+            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full bg-[#00C853]/15 text-[#00C853] flex items-center justify-center shadow-inner animate-pulse">
+                <span className="material-symbols-outlined text-5xl font-black">verified</span>
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center shadow-md">
+                <span className="material-symbols-outlined text-sm font-black">rocket_launch</span>
+              </div>
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-2xl font-black text-black dark:text-white tracking-tight">
-                You're All Set, {userName}!
+              <h2 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight">
+                All Set, {fullName || 'there'}!
               </h2>
-              <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400">
-                Starting Net Worth: <strong className="text-black dark:text-white">{formatMoney(totalStartingNetWorth)}</strong>
-              </p>
-              <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                Profession: <strong className="text-black dark:text-white">{userProfession}</strong> • Age: <strong className="text-black dark:text-white">{userAge}</strong>
+              <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
+                Your Kanakku personal finance tracker has been configured and is ready to launch.
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-left text-xs space-y-2">
-              <div className="flex items-center gap-2 text-black dark:text-white font-black">
-                <span className="material-symbols-outlined text-base text-[#00C853]">check_circle</span>
-                <span>Personal Profile & Avatar calibrated</span>
+            {/* Profile & Financial Summary Card */}
+            <div className="p-5 rounded-3xl bg-neutral-50 dark:bg-[#1C263A] border border-neutral-200/80 dark:border-[#2E3C56] text-left space-y-4 shadow-sm">
+              {/* User Identity Snapshot */}
+              <div className="flex items-center gap-3.5 pb-3 border-b border-neutral-200 dark:border-[#2E3C56]">
+                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-black dark:border-white shadow-md shrink-0">
+                  <img
+                    src={avatar}
+                    alt="Profile Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-base font-black text-black dark:text-white truncate block">
+                    {fullName || 'User'}
+                  </span>
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400 font-semibold truncate block">
+                    {email} • {phone}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-black dark:text-white font-black">
-                <span className="material-symbols-outlined text-base text-[#00C853]">check_circle</span>
-                <span>Custom Lists & Settings initialized</span>
+
+              {/* Badges Grid */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-3 rounded-2xl bg-white dark:bg-[#141B2A] border border-neutral-200/70 dark:border-[#2E3C56]/70">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400 block">
+                    Profession & Age
+                  </span>
+                  <span className="text-xs font-black text-black dark:text-white mt-0.5 block">
+                    {profession} • {computedAge} yrs
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-white dark:bg-[#141B2A] border border-neutral-200/70 dark:border-[#2E3C56]/70">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400 block">
+                    Initial Net Worth ({selectedCurrency})
+                  </span>
+                  <span className="text-xs font-black text-[#00C853] mt-0.5 block tabular-nums">
+                    {currentCurrencySymbol}{totalStartingNetWorth.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-black dark:text-white font-black">
-                <span className="material-symbols-outlined text-base text-[#00C853]">check_circle</span>
-                <span>Mandatory Need vs. Want tagging active</span>
+
+              {/* Accounts Breakdown Preview */}
+              <div className="space-y-1.5 pt-1 text-xs">
+                <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400 block">
+                  Calibrated Starting Balances
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {locations.map((loc) => (
+                    <div
+                      key={loc.id}
+                      className="p-2.5 rounded-xl bg-white dark:bg-[#141B2A] border border-neutral-200/60 dark:border-[#2E3C56]/60 flex items-center justify-between"
+                    >
+                      <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 truncate">
+                        {loc.name}
+                      </span>
+                      <span className="text-xs font-black text-black dark:text-white tabular-nums">
+                        {currentCurrencySymbol}{(parseFloat(balances[loc.id] || '0') || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-black dark:text-white font-black">
-                <span className="material-symbols-outlined text-base text-[#00C853]">check_circle</span>
-                <span>Zero dummy transactions (Clean Slate)</span>
+
+              {/* Features List */}
+              <div className="space-y-2 pt-1 text-xs">
+                <div className="flex items-center gap-2 text-black dark:text-white font-bold">
+                  <span className="material-symbols-outlined text-base text-[#00C853]">cloud_done</span>
+                  <span>Direct Firestore Cloud Persistence Active</span>
+                </div>
+                <div className="flex items-center gap-2 text-black dark:text-white font-bold">
+                  <span className="material-symbols-outlined text-base text-[#00C853]">lock</span>
+                  <span>Encrypted & Privacy-First Architecture</span>
+                </div>
+                <div className="flex items-center gap-2 text-black dark:text-white font-bold">
+                  <span className="material-symbols-outlined text-base text-[#00C853]">pie_chart</span>
+                  <span>Mandatory Need vs. Want Tagging Configured</span>
+                </div>
               </div>
             </div>
 
-            <button
-              type="button"
-              disabled={isLaunching}
-              onClick={handleFinalLaunch}
-              className="w-full bg-black dark:bg-white text-white dark:text-black font-black text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isLaunching ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  <span>Launching Clean Dashboard...</span>
-                </>
-              ) : (
-                <span>Launch Clean Dashboard 🚀</span>
-              )}
-            </button>
+            {/* Launch Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isLaunching}
+                onClick={() => setCurrentTab(3)}
+                className="flex-1 py-4 rounded-2xl text-xs md:text-sm font-black bg-neutral-100 dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer transition-colors disabled:opacity-50"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                disabled={isLaunching}
+                onClick={handleLaunchApp}
+                className="flex-2 bg-black dark:bg-white text-white dark:text-black font-black text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-2xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2.5"
+              >
+                {isLaunching ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    <span>Saving Cloud Profile...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Launch App</span>
+                    <span className="material-symbols-outlined text-base font-black">rocket_launch</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* 1:1 AVATAR CROP MODAL (using react-image-crop)                            */}
+      {/* ========================================================================= */}
+      {isCropModalOpen && cropSrc && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-[2rem] p-6 shadow-2xl space-y-5 animate-scaleUp">
+            
+            <div className="flex items-center justify-between border-b border-neutral-200 dark:border-[#2E3C56] pb-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-xl text-black dark:text-white">crop</span>
+                <h3 className="text-lg font-black text-black dark:text-white">Crop Profile Photo (1:1)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCropModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 cursor-pointer transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            {/* Cropping Area */}
+            <div className="flex items-center justify-center max-h-[55vh] overflow-hidden bg-neutral-900/90 rounded-2xl p-2">
+              <ReactCrop
+                crop={crop}
+                onChange={(_, percentCrop) => setCrop(percentCrop)}
+                onComplete={(c) => setCompletedCrop(c)}
+                aspect={1}
+                circularCrop
+                className="max-h-[50vh] max-w-full"
+              >
+                <img
+                  ref={imgRef}
+                  src={cropSrc}
+                  alt="Crop Source"
+                  onLoad={onImageLoad}
+                  className="max-h-[50vh] max-w-full object-contain"
+                />
+              </ReactCrop>
+            </div>
+
+            <p className="text-[11px] text-center text-neutral-500 dark:text-neutral-400 font-bold">
+              Drag corners or move to adjust your 1:1 circular avatar crop.
+            </p>
+
+            {/* Modal Actions */}
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsCropModalOpen(false)}
+                className="flex-1 py-3 rounded-xl font-black text-xs bg-neutral-100 dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyCroppedImage}
+                className="flex-2 py-3 rounded-xl font-black text-xs bg-black dark:bg-white text-white dark:text-black hover:opacity-90 active:scale-[0.98] transition-all shadow-lg cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-base">check</span>
+                <span>Apply Crop</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

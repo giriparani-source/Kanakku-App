@@ -8,7 +8,7 @@ export type TransferType = 'deposit' | 'withdrawal' | 'transfer';
 
 export type NeedWantType = 'Need' | 'Want';
 
-export type UserProfession = 'Student' | 'Salaried';
+export type UserProfession = 'Student' | 'Salaried' | 'Freelancer' | 'Business' | 'Self-Employed' | string;
 
 export interface MoneyLocation {
   id: string;
@@ -76,6 +76,7 @@ export type Transaction = IncomeTransaction | ExpenseTransaction | TransferTrans
 export interface UserProfile {
   name: string;
   age?: number | string;
+  dob?: string;
   profession?: UserProfession;
   email: string;
   phone: string;
