@@ -276,7 +276,7 @@ export const AddTransactionModal: React.FC = () => {
               <span className="material-symbols-outlined text-2xl font-black">close</span>
             </button>
             <h2 className="font-black text-xl text-black dark:text-white tracking-tight">
-              Log Transaction
+              Add Transaction
             </h2>
           </div>
 
@@ -339,7 +339,7 @@ export const AddTransactionModal: React.FC = () => {
                   : 'text-black dark:text-neutral-300 hover:opacity-80'
               }`}
             >
-              Expense (Mod C)
+              Expense
             </button>
             <button
               type="button"
@@ -350,7 +350,7 @@ export const AddTransactionModal: React.FC = () => {
                   : 'text-black dark:text-neutral-300 hover:opacity-80'
               }`}
             >
-              Income (Mod B)
+              Income
             </button>
             <button
               type="button"
@@ -361,7 +361,7 @@ export const AddTransactionModal: React.FC = () => {
                   : 'text-black dark:text-neutral-300 hover:opacity-80'
               }`}
             >
-              Transfer (Mod D)
+              Transfer
             </button>
           </div>
         </div>
@@ -697,7 +697,7 @@ export const AddTransactionModal: React.FC = () => {
             {isSaving ? (
               <span className="inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
             ) : (
-              `Log ${activeType.toUpperCase()}`
+              `Save ${activeType.charAt(0).toUpperCase() + activeType.slice(1)}`
             )}
           </button>
         </form>
