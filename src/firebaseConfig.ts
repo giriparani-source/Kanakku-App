@@ -1,10 +1,10 @@
-// Import the functions you need from the SDKs you need
+// Firebase Web SDK initialization and configuration
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { initializeFirestore } from "firebase/firestore";
 
-// Your web app's Firebase configuration
+// Securely read Firebase credentials from environment variables using Vite's import.meta.env
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -21,20 +21,21 @@ export const app = initializeApp(firebaseConfig);
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
 
-// Initialize Firestore with ignoreUndefinedProperties enabled so any optional undefined fields are safely handled
+// Initialize Firestore with ignoreUndefinedProperties enabled for resilient data handling
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 });
 
-// Safe Analytics initialization
+// Safe Analytics initialization (only in browser environments where supported)
 export let analytics: any = null;
 if (typeof window !== "undefined") {
-  isSupported().then((supported) => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  }).catch(() => {
-    // Ignore analytics unsupported environments
-  });
+  isSupported()
+    .then((supported) => {
+      if (supported) {
+        analytics = getAnalytics(app);
+      }
+    })
+    .catch(() => {
+      // Gracefully ignore analytics unsupported environments
+    });
 }
-
