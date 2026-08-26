@@ -16,9 +16,6 @@ import {
   MoneyLocation,
   IncomeSource,
   Transaction,
-  IncomeTransaction,
-  ExpenseTransaction,
-  TransferTransaction,
   UserProfile,
   AppSettings,
   CategoryBudget,
@@ -35,7 +32,6 @@ const sanitizeData = <T>(obj: T): T => {
 // ==========================================
 // EXPLICIT FIRESTORE COLLECTIONS & DOCUMENTS
 // ==========================================
-const USERS_COLLECTION = collection(db, 'users');
 const TRANSACTIONS_COLLECTION = collection(db, 'transactions');
 const EXPENSES_COLLECTION = collection(db, 'expenses');
 const INCOME_COLLECTION = collection(db, 'income');
@@ -43,11 +39,8 @@ const TRANSFERS_COLLECTION = collection(db, 'transfers');
 const LOCATIONS_COLLECTION = collection(db, 'locations');
 const CATEGORIES_COLLECTION = collection(db, 'categories');
 const INCOME_SOURCES_COLLECTION = collection(db, 'income_sources');
-const SETTINGS_COLLECTION = collection(db, 'settings');
-const BUDGETS_COLLECTION = collection(db, 'budgets');
 
-// User & Settings Singleton Docs
-const USER_DOC_ID = 'default_user';
+// Global / shared collections singleton Doc IDs
 const SETTINGS_DOC_ID = 'app_settings';
 const BUDGETS_DOC_ID = 'category_budgets';
 const CATEGORIES_ORDER_DOC_ID = 'category_list_meta';
@@ -58,9 +51,17 @@ const INCOME_SOURCES_ORDER_DOC_ID = 'source_list_meta';
 // REAL-TIME FIRESTORE SUBSCRIPTIONS
 // ==========================================
 
-export const subscribeToProfile = (onUpdate: (profile: UserProfile | null) => void): Unsubscribe => {
+export const subscribeToProfile = (
+  userId: string,
+  onUpdate: (profile: UserProfile | null) => void
+): Unsubscribe => {
+  if (!userId) {
+    onUpdate(null);
+    return () => {};
+  }
+
   return onSnapshot(
-    doc(db, 'users', USER_DOC_ID),
+    doc(db, 'users', userId),
     (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
@@ -82,6 +83,30 @@ export const subscribeToProfile = (onUpdate: (profile: UserProfile | null) => vo
       console.warn('Firestore profile subscription warning:', err);
     }
   );
+};
+
+export const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
+  if (!userId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', userId));
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        name: data.name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        dob: data.dob || '',
+        age: data.age !== undefined && data.age !== '' ? data.age : undefined,
+        profession: data.profession || '',
+        memberSince: data.memberSince || '',
+        avatarUrl: data.avatarUrl || '',
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error('❌ Error fetching user profile from Firestore:', err);
+    return null;
+  }
 };
 
 export const subscribeToSettings = (onUpdate: (settings: AppSettings | null) => void): Unsubscribe => {
@@ -219,23 +244,24 @@ export const subscribeToTransactions = (onUpdate: (transactions: Transaction[]) 
   );
 };
 
-// Save / update profile in Firestore 'users' collection
-export const updateUserProfile = async (profile: Partial<UserProfile>): Promise<void> => {
+// Save / update profile in Firestore 'users' collection linked directly to UID
+export const updateUserProfile = async (
+  userId: string,
+  profile: Partial<UserProfile>
+): Promise<void> => {
+  if (!userId) {
+    console.warn('⚠️ [Firestore] Cannot update profile: No userId provided');
+    return;
+  }
   try {
     const clean = sanitizeData({
       ...profile,
       updatedAt: new Date().toISOString(),
       timestamp: Date.now(),
     });
-    // 1. Update singleton/active user doc
-    await setDoc(doc(db, 'users', USER_DOC_ID), clean, { merge: true });
-
-    // 2. If email exists, also update dedicated user doc
-    if (profile.email) {
-      const docId = profile.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-      await setDoc(doc(db, 'users', docId), clean, { merge: true });
-    }
-    console.log('🔥 [Firestore] Profile updated in collection "users"');
+    // Write directly to user's UID doc in 'users' collection
+    await setDoc(doc(db, 'users', userId), clean, { merge: true });
+    console.log(`🔥 [Firestore] Profile updated for user UID: ${userId}`);
   } catch (err) {
     console.error('❌ Error updating profile in Firestore:', err);
   }
@@ -390,99 +416,36 @@ export const clearAllTransactionsFromFirestore = async (): Promise<void> => {
   }
 };
 
-// Check if a user with exact match of BOTH email and phone exists in the 'users' collection
-export const checkUserExists = async (
-  email: string,
-  phone: string
+// Check if a user with exact email exists in the 'users' collection
+export const checkUserExistsByEmail = async (
+  email: string
 ): Promise<{ exists: boolean; userId?: string; profile?: UserProfile }> => {
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPhone = phone.trim();
-
-    if (!cleanEmail || !cleanPhone) {
-      return { exists: false };
-    }
+    if (!cleanEmail) return { exists: false };
 
     const usersRef = collection(db, 'users');
-
-    // 1. Query 'users' collection by email
     const qEmail = query(usersRef, where('email', '==', cleanEmail));
     const snap = await getDocs(qEmail);
+
     if (!snap.empty) {
-      for (const d of snap.docs) {
-        const data = d.data();
-        const dEmail = (data.email || '').trim().toLowerCase();
-        const dPhone = (data.phone || '').trim();
-        const phoneDigits = cleanPhone.replace(/\D/g, '');
-        const dPhoneDigits = dPhone.replace(/\D/g, '');
-
-        const isExactEmail = dEmail === cleanEmail;
-        const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
-
-        if (isExactEmail && isExactPhone) {
-          return {
-            exists: true,
-            userId: d.id,
-            profile: data as UserProfile,
-          };
-        }
-      }
-    }
-
-    // 2. Query 'users' collection by phone
-    const qPhone = query(usersRef, where('phone', '==', cleanPhone));
-    const snapPhone = await getDocs(qPhone);
-    if (!snapPhone.empty) {
-      for (const d of snapPhone.docs) {
-        const data = d.data();
-        const dEmail = (data.email || '').trim().toLowerCase();
-        const dPhone = (data.phone || '').trim();
-        const phoneDigits = cleanPhone.replace(/\D/g, '');
-        const dPhoneDigits = dPhone.replace(/\D/g, '');
-
-        const isExactEmail = dEmail === cleanEmail;
-        const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
-
-        if (isExactEmail && isExactPhone) {
-          return {
-            exists: true,
-            userId: d.id,
-            profile: data as UserProfile,
-          };
-        }
-      }
-    }
-
-    // 3. Fallback scan of 'users' collection (e.g. singleton doc 'default_user' or unindexed format)
-    const allUsersSnap = await getDocs(usersRef);
-    for (const d of allUsersSnap.docs) {
-      const data = d.data();
-      const dEmail = (data.email || '').trim().toLowerCase();
-      const dPhone = (data.phone || '').trim();
-
-      const isExactEmail = dEmail === cleanEmail;
-      const phoneDigits = cleanPhone.replace(/\D/g, '');
-      const dPhoneDigits = dPhone.replace(/\D/g, '');
-      const isExactPhone = dPhone === cleanPhone || (phoneDigits.length >= 7 && phoneDigits === dPhoneDigits);
-
-      if (isExactEmail && isExactPhone) {
-        return {
-          exists: true,
-          userId: d.id,
-          profile: data as UserProfile,
-        };
-      }
+      const firstDoc = snap.docs[0];
+      return {
+        exists: true,
+        userId: firstDoc.id,
+        profile: firstDoc.data() as UserProfile,
+      };
     }
 
     return { exists: false };
   } catch (err) {
-    console.error('❌ Error checking user existence in Firestore:', err);
+    console.error('❌ Error checking user in Firestore:', err);
     return { exists: false };
   }
 };
 
 // Fetch all Firestore documents for restoring an existing account
-export const fetchAllFirestoreData = async (): Promise<{
+export const fetchAllFirestoreData = async (userId?: string): Promise<{
   profile?: UserProfile;
   settings?: AppSettings;
   categories?: ExpenseCategory[];
@@ -492,9 +455,10 @@ export const fetchAllFirestoreData = async (): Promise<{
   transactions?: Transaction[];
 } | null> => {
   try {
+    const userDocRef = userId ? doc(db, 'users', userId) : null;
     const [profileSnap, settingsSnap, catSnap, locSnap, incSnap, budgetSnap, txSnap] =
       await Promise.all([
-        getDoc(doc(db, 'users', USER_DOC_ID)),
+        userDocRef ? getDoc(userDocRef) : Promise.resolve(null),
         getDoc(doc(db, 'settings', SETTINGS_DOC_ID)),
         getDocs(CATEGORIES_COLLECTION),
         getDocs(LOCATIONS_COLLECTION),
@@ -503,7 +467,7 @@ export const fetchAllFirestoreData = async (): Promise<{
         getDocs(TRANSACTIONS_COLLECTION),
       ]);
 
-    const profile = profileSnap.exists() ? (profileSnap.data() as UserProfile) : undefined;
+    const profile = profileSnap && profileSnap.exists() ? (profileSnap.data() as UserProfile) : undefined;
     const settings = settingsSnap.exists() ? (settingsSnap.data() as AppSettings) : undefined;
 
     let categories: ExpenseCategory[] = [];
@@ -565,19 +529,22 @@ export const fetchAllFirestoreData = async (): Promise<{
 };
 
 // Initial Cloud Sync / Migration Helper
-export const syncAllDataToFirestore = async (data: {
-  profile: UserProfile;
-  settings: AppSettings;
-  categories: ExpenseCategory[];
-  locations: MoneyLocation[];
-  incomeSources: IncomeSource[];
-  budgets: CategoryBudget[];
-  transactions: Transaction[];
-}): Promise<void> => {
+export const syncAllDataToFirestore = async (
+  userId: string,
+  data: {
+    profile: UserProfile;
+    settings: AppSettings;
+    categories: ExpenseCategory[];
+    locations: MoneyLocation[];
+    incomeSources: IncomeSource[];
+    budgets: CategoryBudget[];
+    transactions: Transaction[];
+  }
+): Promise<void> => {
   try {
-    console.log('🔥 [Firestore] Syncing all collections to Firestore (users, settings, categories, locations, income_sources, budgets, transactions)...');
+    console.log(`🔥 [Firestore] Syncing all collections to Firestore for UID "${userId}"...`);
     await Promise.all([
-      saveProfileToFirestore(data.profile),
+      saveProfileToFirestore(userId, data.profile),
       saveSettingsToFirestore(data.settings),
       saveCategoriesToFirestore(data.categories),
       saveLocationsToFirestore(data.locations),
@@ -594,7 +561,7 @@ export const syncAllDataToFirestore = async (data: {
 export interface NewUserData {
   name: string;
   email: string;
-  phone: string;
+  phone?: string;
   dob?: string;
   age?: number | string;
   profession?: string;
@@ -610,10 +577,16 @@ export interface NewUserData {
   }[];
 }
 
-// Stores the new user document in the Firestore 'users' collection
+// Stores the new user document in the Firestore 'users' collection linked directly to UID
 export const saveNewUser = async (
+  userId: string,
   userData: NewUserData
 ): Promise<{ success: boolean; id?: string }> => {
+  if (!userId) {
+    console.error('❌ Error saving new user: No userId provided');
+    return { success: false };
+  }
+
   try {
     const cleanUser = sanitizeData({
       name: (userData.name || 'User').trim(),
@@ -631,18 +604,13 @@ export const saveNewUser = async (
       timestamp: Date.now(),
     });
 
-    // 1. Write to 'default_user' doc in 'users' collection for immediate sync
-    await setDoc(doc(db, 'users', USER_DOC_ID), cleanUser, { merge: true });
+    // Write to 'users/{userId}'
+    await setDoc(doc(db, 'users', userId), cleanUser, { merge: true });
 
-    // 2. Also write a dedicated doc in 'users' collection keyed by email
-    const docId = cleanUser.email ? cleanUser.email.replace(/[^a-zA-Z0-9]/g, '_') : 'user_' + Date.now();
-    await setDoc(doc(db, 'users', docId), cleanUser, { merge: true });
-
-    console.log(`🔥 [Firestore] New user "${cleanUser.name}" saved to "users" collection (id: ${docId})`);
-    return { success: true, id: docId };
+    console.log(`🔥 [Firestore] User "${cleanUser.name}" profile saved under UID "${userId}"`);
+    return { success: true, id: userId };
   } catch (err) {
     console.error('❌ Error saving new user to Firestore:', err);
     return { success: false };
   }
 };
-

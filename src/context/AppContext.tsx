@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  User,
+} from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 import {
   Transaction,
   IncomeTransaction,
@@ -47,6 +55,13 @@ import {
 } from '../services/firestoreService';
 
 interface AppContextType {
+  // Authentication
+  currentUser: User | null;
+  isAuthLoading: boolean;
+  signInUser: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>;
+  signUpUser: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>;
+  logoutUser: () => Promise<void>;
+
   // Navigation
   activeTab: 'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings';
   setActiveTab: (tab: 'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings') => void;
@@ -217,11 +232,16 @@ const STORAGE_KEYS = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Navigation State
   const [activeTab, setActiveTab] = useState<'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings'>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   // Cloud status
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
@@ -287,91 +307,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
   });
 
+  const unsubsRef = useRef<(() => void)[]>([]);
+
   // ==========================================
-  // FIRESTORE REAL-TIME SYNCHRONIZATION
+  // REAL-TIME FIREBASE AUTH & FIRESTORE LISTENERS
   // ==========================================
   useEffect(() => {
-    setCloudSyncStatus('syncing');
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // Clear any prior Firestore listeners
+      unsubsRef.current.forEach((unsub) => unsub());
+      unsubsRef.current = [];
 
-    // Subscribe to Firestore collections & documents in real-time
-    const unsubProfile = subscribeToProfile((cloudProfile) => {
-      if (cloudProfile) {
-        setProfile(cloudProfile);
-        localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
+      setCurrentUser(user);
+      setIsAuthLoading(false);
+
+      if (user) {
+        console.log(`🔒 [Auth] User logged in: ${user.email} (UID: ${user.uid})`);
+        setCloudSyncStatus('syncing');
+
+        // 1. Subscribe to profile in Firestore under UID doc
+        const unsubProfile = subscribeToProfile(user.uid, (cloudProfile) => {
+          if (cloudProfile && cloudProfile.name) {
+            setProfile(cloudProfile);
+            setIsOnboarded(true);
+            localStorage.setItem(STORAGE_KEYS.ONBOARDED, 'true');
+            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
+          }
+        });
+        unsubsRef.current.push(unsubProfile);
+
+        // 2. Subscribe to Settings, Categories, Locations, Income Sources, Budgets, Transactions
+        const unsubSettings = subscribeToSettings((cloudSettings) => {
+          if (cloudSettings) {
+            setSettings(cloudSettings);
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cloudSettings));
+          }
+        });
+        unsubsRef.current.push(unsubSettings);
+
+        const unsubCategories = subscribeToCategories((cloudCategories) => {
+          if (cloudCategories && cloudCategories.length > 0) {
+            setCategories(cloudCategories);
+            localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cloudCategories));
+          }
+        });
+        unsubsRef.current.push(unsubCategories);
+
+        const unsubLocations = subscribeToLocations((cloudLocations) => {
+          if (cloudLocations && cloudLocations.length > 0) {
+            setLocations(cloudLocations);
+            localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(cloudLocations));
+          }
+        });
+        unsubsRef.current.push(unsubLocations);
+
+        const unsubIncomeSources = subscribeToIncomeSources((cloudSources) => {
+          if (cloudSources && cloudSources.length > 0) {
+            setIncomeSources(cloudSources);
+            localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(cloudSources));
+          }
+        });
+        unsubsRef.current.push(unsubIncomeSources);
+
+        const unsubBudgets = subscribeToBudgets((cloudBudgets) => {
+          if (cloudBudgets && cloudBudgets.length > 0) {
+            setBudgets(cloudBudgets);
+            localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(cloudBudgets));
+          }
+        });
+        unsubsRef.current.push(unsubBudgets);
+
+        const unsubTransactions = subscribeToTransactions((cloudTransactions) => {
+          setTransactions(cloudTransactions);
+          localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTransactions));
+          setIsCloudSynced(true);
+          setCloudSyncStatus('synced');
+        });
+        unsubsRef.current.push(unsubTransactions);
+      } else {
+        console.log('🔒 [Auth] User is logged out');
+        setIsOnboarded(false);
+        localStorage.removeItem(STORAGE_KEYS.ONBOARDED);
       }
     });
-
-    const unsubSettings = subscribeToSettings((cloudSettings) => {
-      if (cloudSettings) {
-        setSettings(cloudSettings);
-        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cloudSettings));
-      }
-    });
-
-    const unsubCategories = subscribeToCategories((cloudCategories) => {
-      if (cloudCategories && cloudCategories.length > 0) {
-        setCategories(cloudCategories);
-        localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cloudCategories));
-      }
-    });
-
-    const unsubLocations = subscribeToLocations((cloudLocations) => {
-      if (cloudLocations && cloudLocations.length > 0) {
-        setLocations(cloudLocations);
-        localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(cloudLocations));
-      }
-    });
-
-    const unsubIncomeSources = subscribeToIncomeSources((cloudSources) => {
-      if (cloudSources && cloudSources.length > 0) {
-        setIncomeSources(cloudSources);
-        localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(cloudSources));
-      }
-    });
-
-    const unsubBudgets = subscribeToBudgets((cloudBudgets) => {
-      if (cloudBudgets && cloudBudgets.length > 0) {
-        setBudgets(cloudBudgets);
-        localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(cloudBudgets));
-      }
-    });
-
-    const unsubTransactions = subscribeToTransactions((cloudTransactions) => {
-      setTransactions(cloudTransactions);
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTransactions));
-      setIsCloudSynced(true);
-      setCloudSyncStatus('synced');
-    });
-
-    // Auto-seed Firestore on initial load if user is onboarded
-    if (localStorage.getItem(STORAGE_KEYS.ONBOARDED) === 'true') {
-      const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
-      const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      const savedCategories = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
-      const savedLocations = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
-      const savedSources = localStorage.getItem(STORAGE_KEYS.INCOME_SOURCES);
-      const savedBudgets = localStorage.getItem(STORAGE_KEYS.BUDGETS);
-      const savedTx = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-
-      syncAllDataToFirestore({
-        profile: savedProfile ? JSON.parse(savedProfile) : profile,
-        settings: savedSettings ? JSON.parse(savedSettings) : settings,
-        categories: savedCategories ? JSON.parse(savedCategories) : categories,
-        locations: savedLocations ? JSON.parse(savedLocations) : locations,
-        incomeSources: savedSources ? JSON.parse(savedSources) : incomeSources,
-        budgets: savedBudgets ? JSON.parse(savedBudgets) : budgets,
-        transactions: savedTx ? JSON.parse(savedTx) : transactions,
-      }).catch((e) => console.warn('Auto cloud sync notice:', e));
-    }
 
     return () => {
-      unsubProfile();
-      unsubSettings();
-      unsubCategories();
-      unsubLocations();
-      unsubIncomeSources();
-      unsubBudgets();
-      unsubTransactions();
+      unsubscribeAuth();
+      unsubsRef.current.forEach((unsub) => unsub());
     };
   }, []);
 
@@ -391,6 +413,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTimeout(() => {
       setToastMessage(null);
     }, 3200);
+  };
+
+  // ==========================================
+  // FIREBASE AUTH METHODS
+  // ==========================================
+  const signInUser = async (email: string, password: string) => {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      return { success: true, user: userCredential.user };
+    } catch (err: any) {
+      console.error('Firebase signIn error:', err);
+      let errorMsg = 'Failed to sign in. Please check your credentials.';
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        errorMsg = 'Invalid email or password. Please try again or create an account.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMsg = 'Please enter a valid email address.';
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMsg = 'Too many failed login attempts. Please try again later.';
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const signUpUser = async (email: string, password: string) => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      return { success: true, user: userCredential.user };
+    } catch (err: any) {
+      console.error('Firebase signUp error:', err);
+      let errorMsg = 'Failed to create account.';
+      if (err.code === 'auth/email-already-in-use') {
+        errorMsg = 'An account with this email already exists. Please Sign In.';
+      } else if (err.code === 'auth/weak-password') {
+        errorMsg = 'Password should be at least 6 characters long.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMsg = 'Please provide a valid email address.';
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const logoutUser = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(null);
+      setIsOnboarded(false);
+      localStorage.clear();
+      setProfile(INITIAL_PROFILE);
+      setTransactions([]);
+      setActiveTab('home');
+      showToast('Logged out successfully');
+    } catch (err) {
+      console.error('Firebase signOut error:', err);
+      showToast('Error signing out');
+    }
   };
 
   // ==========================================
@@ -805,7 +886,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated = { ...profile, ...partial };
     setProfile(updated);
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
-    await saveProfileToFirestore(updated);
+    const activeUid = currentUser?.uid || auth.currentUser?.uid;
+    if (activeUid) {
+      await saveProfileToFirestore(activeUid, updated);
+    }
     showToast('Profile saved to Cloud');
   };
 
@@ -829,7 +913,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated: UserProfile = { ...profile, avatarUrl: base64Image };
     setProfile(updated);
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
-    await saveProfileToFirestore(updated);
+    const activeUid = currentUser?.uid || auth.currentUser?.uid;
+    if (activeUid) {
+      await saveProfileToFirestore(activeUid, updated);
+    }
     showToast('Profile photo updated & saved');
   };
 
@@ -879,6 +966,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }[];
   }) => {
     try {
+      const activeUid = currentUser?.uid || auth.currentUser?.uid || '';
       const cleanName = (data?.name || profile.name || 'User').trim();
       const chosenCurrency = data?.currency || settings.currency || 'INR';
 
@@ -887,7 +975,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         age: data?.age !== undefined ? data.age : (profile.age || 24),
         dob: data?.dob || profile.dob || '',
         profession: data?.profession || profile.profession || 'Salaried',
-        email: (data?.email || profile.email || '').trim(),
+        email: (data?.email || currentUser?.email || profile.email || '').trim(),
         phone: (data?.phone || profile.phone || '').trim(),
         memberSince: profile.memberSince || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
         avatarUrl: data?.avatarUrl || profile.avatarUrl || INITIAL_PROFILE.avatarUrl,
@@ -957,20 +1045,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updatedSettings));
 
       // 3. Asynchronously sync all setup data into Firebase Firestore
-      try {
-        await syncAllDataToFirestore({
-          profile: updatedProfile,
-          settings: updatedSettings,
-          categories,
-          locations: updatedLocations,
-          incomeSources,
-          budgets,
-          transactions: [],
-        });
-        showToast('Setup complete! Connected to Cloud');
-      } catch (firestoreError) {
-        console.warn('Firebase Firestore initial sync notice:', firestoreError);
-        showToast('Setup complete! (Saved locally & syncing)');
+      if (activeUid) {
+        try {
+          await syncAllDataToFirestore(activeUid, {
+            profile: updatedProfile,
+            settings: updatedSettings,
+            categories,
+            locations: updatedLocations,
+            incomeSources,
+            budgets,
+            transactions: [],
+          });
+          showToast('Setup complete! Connected to Cloud');
+        } catch (firestoreError) {
+          console.warn('Firebase Firestore initial sync notice:', firestoreError);
+          showToast('Setup complete! (Saved locally & syncing)');
+        }
       }
     } catch (err) {
       console.error('Error completing onboarding:', err);
@@ -1028,11 +1118,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetOnboarding = async () => {
-    setIsOnboarded(false);
-    setTransactions([]);
-    localStorage.clear();
-    await clearAllTransactionsFromFirestore();
-    showToast('App reset to clean slate');
+    await logoutUser();
   };
 
   const getCurrencySymbol = (curr?: CurrencyCode) => {
@@ -1049,9 +1135,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const syncToCloud = async () => {
+    const activeUid = currentUser?.uid || auth.currentUser?.uid;
+    if (!activeUid) {
+      showToast('Please sign in to sync with cloud');
+      return;
+    }
     setCloudSyncStatus('syncing');
     try {
-      await syncAllDataToFirestore({
+      await syncAllDataToFirestore(activeUid, {
         profile,
         settings,
         categories,
@@ -1142,15 +1233,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(importedTx));
 
       // 3. Asynchronously Sync into Firebase Firestore
-      syncAllDataToFirestore({
-        profile: importedProfile,
-        settings: importedSettings,
-        categories: importedCategories,
-        locations: importedLocations,
-        incomeSources: importedSources,
-        budgets: importedBudgets,
-        transactions: importedTx,
-      }).catch((e) => console.warn('Firestore import sync notice:', e));
+      const activeUid = currentUser?.uid || auth.currentUser?.uid;
+      if (activeUid) {
+        syncAllDataToFirestore(activeUid, {
+          profile: importedProfile,
+          settings: importedSettings,
+          categories: importedCategories,
+          locations: importedLocations,
+          incomeSources: importedSources,
+          budgets: importedBudgets,
+          transactions: importedTx,
+        }).catch((e) => console.warn('Firestore import sync notice:', e));
+      }
 
       showToast('Backup restored successfully! Dashboard balances updated.');
       return true;
@@ -1164,6 +1258,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        currentUser,
+        isAuthLoading,
+        signInUser,
+        signUpUser,
+        logoutUser,
+
         activeTab,
         setActiveTab,
         isAddModalOpen,

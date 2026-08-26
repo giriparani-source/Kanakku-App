@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserProfession, UserProfile } from '../../types';
 import { fileToBase64 } from '../../utils/imageUtils';
-import { updateUserProfile } from '../../services/firestoreService';
 
 interface ProfileViewProps {
   onOpenLinkAccount: () => void;
@@ -31,6 +30,8 @@ function calculateAge(dobString?: string, fallbackAge?: number | string): number
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) => {
   const {
+    currentUser,
+    logoutUser,
     profile,
     updateProfile,
     updateProfileAvatar,
@@ -57,7 +58,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
   const [dobInput, setDobInput] = useState(profile.dob || '');
   const [ageInput, setAgeInput] = useState<string>(userAge !== 'Not Set' ? userAge.toString() : '');
   const [professionInput, setProfessionInput] = useState<UserProfession | ''>(profile.profession || '');
-  const [emailInput, setEmailInput] = useState(profile.email || '');
+  const [emailInput, setEmailInput] = useState(profile.email || currentUser?.email || '');
   const [phoneInput, setPhoneInput] = useState(profile.phone || '');
 
   // Synchronize form fields whenever profile changes and modal is closed
@@ -66,19 +67,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
       setNameInput(profile.name || '');
       setDobInput(profile.dob || '');
       setProfessionInput(profile.profession || '');
-      setEmailInput(profile.email || '');
+      setEmailInput(profile.email || currentUser?.email || '');
       setPhoneInput(profile.phone || '');
       const currentAge = calculateAge(profile.dob, profile.age);
       setAgeInput(currentAge !== 'Not Set' ? currentAge.toString() : '');
     }
-  }, [profile, isEditingInfo]);
+  }, [profile, currentUser, isEditingInfo]);
 
   // Open Edit Modal with fresh values from profile state/database
   const openEditModal = () => {
     setNameInput(profile.name || '');
     setDobInput(profile.dob || '');
     setProfessionInput(profile.profession || '');
-    setEmailInput(profile.email || '');
+    setEmailInput(profile.email || currentUser?.email || '');
     setPhoneInput(profile.phone || '');
     const currentAge = calculateAge(profile.dob, profile.age);
     setAgeInput(currentAge !== 'Not Set' ? currentAge.toString() : '');
@@ -141,11 +142,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
       phone: phoneInput.trim(),
     };
 
-    // 1. Update React Context State & Local Storage immediately
+    // Update React Context State, Local Storage, and Firestore linked to UID
     await updateProfile(updatedData);
-
-    // 2. Explicitly push and save updated details to Firestore database
-    await updateUserProfile(updatedData);
 
     setIsEditingInfo(false);
     showToast('Personal information updated & saved to Cloud');
@@ -174,9 +172,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
     setSecurityModal(false);
   };
 
-  const handleLogOut = () => {
+  const handleLogOut = async () => {
     setShowLogoutConfirm(false);
-    resetOnboarding();
+    await logoutUser();
   };
 
   return (

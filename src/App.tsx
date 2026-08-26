@@ -20,8 +20,23 @@ import { PinLockScreen } from './components/modals/PinLockScreen';
 import { OnboardingView } from './components/views/OnboardingView';
 
 const AppContent: React.FC = () => {
-  const { activeTab, toastMessage, isOnboarded, settings, isAppUnlocked } = useApp();
+  const { activeTab, toastMessage, isOnboarded, settings, isAppUnlocked, isAuthLoading } = useApp();
   const [isLinkAccountOpen, setIsLinkAccountOpen] = useState(false);
+
+  // If Firebase Auth is still resolving initial session, show sleek loading indicator
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B0F17] flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-3 animate-fadeIn">
+          <div className="w-12 h-12 rounded-2xl bg-black dark:bg-white text-white dark:text-black flex items-center justify-center shadow-xl">
+            <span className="material-symbols-outlined text-2xl font-black">account_balance</span>
+          </div>
+          <span className="text-sm font-black text-black dark:text-white tracking-tight">Kanakku</span>
+          <div className="w-5 h-5 border-2 border-black dark:border-white border-t-transparent rounded-full animate-spin mt-2" />
+        </div>
+      </div>
+    );
+  }
 
   // If PIN Lock is active and session is locked, show Lock Screen
   if (settings.isPinLockEnabled && !isAppUnlocked) {

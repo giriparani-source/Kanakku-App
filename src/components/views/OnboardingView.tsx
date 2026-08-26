@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { useApp } from '../../context/AppContext';
-import { checkUserExists, fetchAllFirestoreData, saveNewUser } from '../../services/firestoreService';
+import { fetchAllFirestoreData, saveNewUser, fetchUserProfile } from '../../services/firestoreService';
 import { getCroppedCanvasImage } from '../../utils/imageUtils';
 import { DEFAULT_AVATAR } from '../../constants/data';
 import { CurrencyCode, UserProfession } from '../../types';
@@ -39,6 +39,9 @@ function calculateAge(dobString: string): number {
 
 export const OnboardingView: React.FC = () => {
   const {
+    currentUser,
+    signInUser,
+    signUpUser,
     profile,
     updateProfile,
     settings,
@@ -56,15 +59,18 @@ export const OnboardingView: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<1 | 2 | 3 | 4>(1);
 
   // ==========================================
-  // TAB 1 STATE: Email & Phone
+  // TAB 1 STATE: Real Firebase Auth (Sign In vs Sign Up)
   // ==========================================
-  const [email, setEmail] = useState(profile.email || '');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState(profile.email || currentUser?.email || '');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState(profile.phone || '');
-  const [isCheckingAccount, setIsCheckingAccount] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tab1Error, setTab1Error] = useState<string | null>(null);
 
   // ==========================================
-  // TAB 2 STATE: Profile Setup (Clean initial values)
+  // TAB 2 STATE: Profile Setup
   // ==========================================
   const [fullName, setFullName] = useState('');
   const [dob, setDob] = useState('');
@@ -81,7 +87,7 @@ export const OnboardingView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ==========================================
-  // TAB 3 STATE: Starting Balances & Currency (Empty by default)
+  // TAB 3 STATE: Starting Balances & Currency
   // ==========================================
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>(settings.currency || 'INR');
   const [balances, setBalances] = useState<Record<string, string>>(() => {
@@ -107,7 +113,7 @@ export const OnboardingView: React.FC = () => {
   ];
 
   const tabList = [
-    { num: 1, label: 'Account', icon: 'badge' },
+    { num: 1, label: 'Auth', icon: 'lock' },
     { num: 2, label: 'Profile', icon: 'person' },
     { num: 3, label: 'Balances', icon: 'account_balance_wallet' },
     { num: 4, label: 'Launch', icon: 'rocket_launch' },
@@ -135,22 +141,15 @@ export const OnboardingView: React.FC = () => {
   };
 
   // ==========================================
-  // TAB 1: Continue Handler (User Check)
+  // TAB 1: Real Firebase Auth Handler
   // ==========================================
   const handleTab1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTab1Error(null);
 
     const cleanEmail = email.trim();
-    const cleanPhone = phone.trim();
-
     if (!cleanEmail) {
       setTab1Error('Please enter your email address.');
-      return;
-    }
-
-    if (!cleanPhone) {
-      setTab1Error('Please enter your phone number.');
       return;
     }
 
@@ -160,87 +159,93 @@ export const OnboardingView: React.FC = () => {
       return;
     }
 
+    if (!password) {
+      setTab1Error('Please enter your password.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setTab1Error('Password must be at least 6 characters long.');
+      return;
+    }
+
     try {
-      setIsCheckingAccount(true);
+      setIsAuthenticating(true);
 
-      console.log(`Checking Firestore for user: email=${cleanEmail}, phone=${cleanPhone}`);
-      const userCheckResult = await checkUserExists(cleanEmail, cleanPhone);
+      if (authMode === 'signin') {
+        // Sign In with Firebase Authentication
+        console.log(`🔐 Signing in user with Firebase Auth: ${cleanEmail}`);
+        const res = await signInUser(cleanEmail, password);
 
-      if (userCheckResult.exists) {
-        // User exists: Fetch their data, restore to local state, redirect to main app dashboard
-        console.log('User exists in Firestore. Fetching data to restore...');
-        showToast('Account found! Restoring your financial records...');
-
-        const existingData = await fetchAllFirestoreData();
-
-        if (existingData) {
-          await restoreExistingUserData({
-            ...existingData,
-            profile: existingData.profile || userCheckResult.profile || {
-              name: 'User',
-              email: cleanEmail,
-              phone: cleanPhone,
-              memberSince: '',
-              avatarUrl: '',
-            },
-          });
-        } else {
-          await restoreExistingUserData({
-            profile: userCheckResult.profile || {
-              name: 'User',
-              email: cleanEmail,
-              phone: cleanPhone,
-              memberSince: '',
-              avatarUrl: '',
-            },
-          });
+        if (!res.success || !res.user) {
+          setTab1Error(res.error || 'Invalid email or password. Please try again.');
+          return;
         }
 
-        // Redirect straight to dashboard
-        setActiveTab('home');
+        const userUid = res.user.uid;
+        showToast('Signed in successfully! Fetching cloud profile...');
+
+        // Check if user has an existing profile in Firestore under their UID
+        const existingProfile = await fetchUserProfile(userUid);
+
+        if (existingProfile && existingProfile.name) {
+          // Existing user with setup completed: restore cloud data and go straight to Dashboard
+          const existingData = await fetchAllFirestoreData(userUid);
+          if (existingData) {
+            await restoreExistingUserData({
+              ...existingData,
+              profile: existingData.profile || existingProfile,
+            });
+          } else {
+            await restoreExistingUserData({
+              profile: existingProfile,
+            });
+          }
+          setActiveTab('home');
+          showToast(`Welcome back, ${existingProfile.name}!`);
+        } else {
+          // User authenticated, but first-time profile configuration needed
+          setFullName('');
+          setDob('');
+          setProfession('Salaried');
+          setAvatar(DEFAULT_AVATAR);
+          showToast('Account verified! Let\'s set up your profile.');
+          setCurrentTab(2);
+        }
       } else {
-        // User does not exist: MUST explicitly clear/reset all local states for Avatar, Name, DOB, and Profession to empty values before moving to Tab 2
-        console.log('User does not exist in Firestore. Explicitly clearing local states for clean profile setup...');
+        // Sign Up with Firebase Authentication
+        console.log(`🔐 Creating new user with Firebase Auth: ${cleanEmail}`);
+        const res = await signUpUser(cleanEmail, password);
+
+        if (!res.success || !res.user) {
+          setTab1Error(res.error || 'Failed to create account. Please try again.');
+          return;
+        }
+
+        showToast('Account created! Now personalize your profile.');
         setFullName('');
         setDob('');
         setProfession('Salaried');
         setAvatar(DEFAULT_AVATAR);
-        setTab2Error(null);
-        setTab3Error(null);
 
-        // Reset balances map to empty strings
-        const emptyBalances: Record<string, string> = {};
-        locations.forEach((loc) => {
-          emptyBalances[loc.id] = '';
-        });
-        setBalances(emptyBalances);
-
-        // Reset profile in context so no crossover data remains
+        // Prepopulate context profile with authenticated email
         updateProfile({
           name: '',
           email: cleanEmail,
-          phone: cleanPhone,
+          phone: phone.trim(),
           dob: '',
           age: 24,
           profession: 'Salaried',
           avatarUrl: DEFAULT_AVATAR,
         });
 
-        showToast('New user — let\'s set up your profile!');
         setCurrentTab(2);
       }
-    } catch (err) {
-      console.error('Error checking user existence:', err);
-      setFullName('');
-      setDob('');
-      setProfession('Salaried');
-      setAvatar(DEFAULT_AVATAR);
-      setTab1Error('Database check notice. Continuing to clean profile setup...');
-      setTimeout(() => {
-        setCurrentTab(2);
-      }, 800);
+    } catch (err: any) {
+      console.error('Authentication error in OnboardingView:', err);
+      setTab1Error(err.message || 'An unexpected authentication error occurred.');
     } finally {
-      setIsCheckingAccount(false);
+      setIsAuthenticating(false);
     }
   };
 
@@ -251,7 +256,6 @@ export const OnboardingView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset input so re-selecting same image works
     e.target.value = '';
 
     const reader = new FileReader();
@@ -307,7 +311,6 @@ export const OnboardingView: React.FC = () => {
 
     const calculatedAge = calculateAge(dob);
 
-    // Save profile details to local onboarding state / context
     updateProfile({
       name: cleanName,
       dob: dob,
@@ -329,10 +332,8 @@ export const OnboardingView: React.FC = () => {
     e.preventDefault();
     setTab3Error(null);
 
-    // Save currency to settings
     updateSettings({ currency: selectedCurrency });
 
-    // Update each location initialBalance in state
     locations.forEach((loc) => {
       const rawVal = balances[loc.id] ?? '0';
       const parsed = Math.max(0, parseFloat(rawVal) || 0);
@@ -340,17 +341,22 @@ export const OnboardingView: React.FC = () => {
     });
 
     showToast('Starting balances saved!');
-    // Move to Step 4 (Review & Launch)
     setCurrentTab(4);
   };
 
   // ==========================================
-  // TAB 4: Final Launch Handler (Save to Firestore & Open Dashboard)
+  // TAB 4: Final Launch Handler (Save to Firestore with Real UID)
   // ==========================================
   const handleLaunchApp = async () => {
     try {
       setIsLaunching(true);
-      console.log('🚀 Saving new user with calibrated balances and launching dashboard...');
+
+      const activeUid = currentUser?.uid || '';
+      if (!activeUid) {
+        throw new Error('No authenticated user session found. Please sign in again.');
+      }
+
+      console.log(`🚀 Saving new user under UID "${activeUid}" and launching dashboard...`);
 
       const cleanName = fullName.trim() || 'User';
       const cleanEmail = email.trim();
@@ -365,8 +371,8 @@ export const OnboardingView: React.FC = () => {
         isSavings: loc.isSavings,
       }));
 
-      // 1. Call saveNewUser to securely write data to Firestore 'users' collection
-      await saveNewUser({
+      // 1. Persist user document to Firestore 'users/{activeUid}'
+      await saveNewUser(activeUid, {
         name: cleanName,
         email: cleanEmail,
         phone: cleanPhone,
@@ -395,9 +401,9 @@ export const OnboardingView: React.FC = () => {
 
       showToast(`Welcome to Kanakku, ${cleanName}! Your dashboard is live.`);
       setActiveTab('home');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error during onboarding launch:', err);
-      showToast('Dashboard launched! (Local cache saved)');
+      showToast(err.message || 'Error launching app. Check cloud connection.');
       setActiveTab('home');
     } finally {
       setIsLaunching(false);
@@ -426,7 +432,7 @@ export const OnboardingView: React.FC = () => {
               </div>
             </div>
             <div className="px-3 py-1 rounded-full bg-neutral-100 dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-[11px] font-black text-neutral-700 dark:text-neutral-300">
-              Tab {currentTab} of 4
+              Step {currentTab} of 4
             </div>
           </div>
 
@@ -467,21 +473,55 @@ export const OnboardingView: React.FC = () => {
         </div>
 
         {/* ========================================================================= */}
-        {/* TAB 1: Account Identification (Email Address & Phone Number)              */}
+        {/* TAB 1: Real Firebase Authentication (Sign In & Sign Up)                   */}
         {/* ========================================================================= */}
         {currentTab === 1 && (
           <form onSubmit={handleTab1Submit} className="space-y-6 animate-fadeIn">
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-[11px] font-bold">
-                <span className="material-symbols-outlined text-xs">verified_user</span>
-                <span>Step 1 • Cloud Verification</span>
+                <span className="material-symbols-outlined text-xs">lock</span>
+                <span>Firebase Authentication</span>
               </div>
               <h2 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight pt-1">
-                Welcome to Kanakku
+                {authMode === 'signin' ? 'Sign In to Kanakku' : 'Create an Account'}
               </h2>
               <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
-                Enter your email address and phone number to verify or restore your account.
+                {authMode === 'signin'
+                  ? 'Enter your credentials to access and sync your encrypted financial vault.'
+                  : 'Register a new secure account to start tracking your finances.'}
               </p>
+            </div>
+
+            {/* Sign In vs Create Account Toggle Tabs */}
+            <div className="grid grid-cols-2 p-1 rounded-2xl bg-neutral-100 dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56]">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signin');
+                  setTab1Error(null);
+                }}
+                className={`py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  authMode === 'signin'
+                    ? 'bg-white dark:bg-[#141B2A] text-black dark:text-white shadow-md'
+                    : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signup');
+                  setTab1Error(null);
+                }}
+                className={`py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  authMode === 'signup'
+                    ? 'bg-white dark:bg-[#141B2A] text-black dark:text-white shadow-md'
+                    : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+                }`}
+              >
+                Create Account
+              </button>
             </div>
 
             {/* Error Message Box */}
@@ -510,58 +550,91 @@ export const OnboardingView: React.FC = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="alex@example.com"
-                    disabled={isCheckingAccount}
+                    disabled={isAuthenticating}
                     className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
                   />
                 </div>
               </div>
 
-              {/* Phone Number Input */}
+              {/* Password Input with Show/Hide toggle */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                  Phone Number *
+                  Password *
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 text-lg pointer-events-none">
-                    call
+                    lock
                   </span>
                   <input
-                    type="tel"
+                    type={showPassword ? 'text' : 'password'}
                     required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+91 98765 43210"
-                    disabled={isCheckingAccount}
-                    className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Minimum 6 characters"
+                    disabled={isAuthenticating}
+                    className="w-full pl-11 pr-12 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-lg">
+                      {showPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
                 </div>
               </div>
+
+              {/* Phone Number (Visible when Signing Up) */}
+              {authMode === 'signup' && (
+                <div className="space-y-1.5 animate-fadeIn">
+                  <label className="block text-xs font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                    Phone Number (Optional)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-neutral-400 text-lg pointer-events-none">
+                      call
+                    </span>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      disabled={isAuthenticating}
+                      className="w-full pl-11 pr-4 py-3.5 bg-neutral-50 dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 disabled:opacity-60 transition-all"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Cloud Auto-Restore Info Box */}
+            {/* Cloud Sync Notice */}
             <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-[#1C263A]/60 border border-neutral-200/80 dark:border-[#2E3C56]/60 flex items-start gap-3">
               <span className="material-symbols-outlined text-neutral-500 dark:text-neutral-400 text-lg mt-0.5">
-                cloud_sync
+                verified_user
               </span>
               <p className="text-xs text-neutral-600 dark:text-neutral-400 font-medium leading-relaxed">
-                Existing users will automatically restore their cloud records and skip straight to the dashboard. New users will proceed to Step 2.
+                {authMode === 'signin'
+                  ? 'Signing in links your account with your unique Firebase UID and automatically restores your cloud records.'
+                  : 'Creating an account configures your secure profile linked to Firebase Cloud Firestore.'}
               </p>
             </div>
 
-            {/* Continue Button */}
+            {/* Continue / Sign In Button */}
             <button
               type="submit"
-              disabled={isCheckingAccount}
+              disabled={isAuthenticating}
               className="w-full bg-black dark:bg-white text-white dark:text-black font-black text-sm py-4 rounded-2xl hover:opacity-90 active:scale-[0.98] transition-all shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2.5"
             >
-              {isCheckingAccount ? (
+              {isAuthenticating ? (
                 <>
                   <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  <span>Checking Account...</span>
+                  <span>{authMode === 'signin' ? 'Authenticating...' : 'Creating Account...'}</span>
                 </>
               ) : (
                 <>
-                  <span>Continue</span>
+                  <span>{authMode === 'signin' ? 'Sign In' : 'Create & Continue'}</span>
                   <span className="material-symbols-outlined text-base font-black">arrow_forward</span>
                 </>
               )}
@@ -904,7 +977,7 @@ export const OnboardingView: React.FC = () => {
                 All Set, {fullName || 'there'}!
               </h2>
               <p className="text-xs md:text-sm font-semibold text-neutral-600 dark:text-neutral-400">
-                Your Kanakku personal finance tracker has been configured and is ready to launch.
+                Your Kanakku personal finance tracker has been configured with Firebase Authentication.
               </p>
             </div>
 
@@ -924,8 +997,13 @@ export const OnboardingView: React.FC = () => {
                     {fullName || 'User'}
                   </span>
                   <span className="text-xs text-neutral-500 dark:text-neutral-400 font-semibold truncate block">
-                    {email} • {phone}
+                    {email} {phone ? `• ${phone}` : ''}
                   </span>
+                  {currentUser?.uid && (
+                    <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500 truncate block mt-0.5">
+                      UID: {currentUser.uid}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -975,16 +1053,16 @@ export const OnboardingView: React.FC = () => {
               {/* Features List */}
               <div className="space-y-2 pt-1 text-xs">
                 <div className="flex items-center gap-2 text-black dark:text-white font-bold">
+                  <span className="material-symbols-outlined text-base text-[#00C853]">verified_user</span>
+                  <span>Authenticated via Firebase Auth</span>
+                </div>
+                <div className="flex items-center gap-2 text-black dark:text-white font-bold">
                   <span className="material-symbols-outlined text-base text-[#00C853]">cloud_done</span>
-                  <span>Direct Firestore Cloud Persistence Active</span>
+                  <span>Direct Firestore UID Document Linked</span>
                 </div>
                 <div className="flex items-center gap-2 text-black dark:text-white font-bold">
                   <span className="material-symbols-outlined text-base text-[#00C853]">lock</span>
                   <span>Encrypted & Privacy-First Architecture</span>
-                </div>
-                <div className="flex items-center gap-2 text-black dark:text-white font-bold">
-                  <span className="material-symbols-outlined text-base text-[#00C853]">pie_chart</span>
-                  <span>Mandatory Need vs. Want Tagging Configured</span>
                 </div>
               </div>
             </div>
