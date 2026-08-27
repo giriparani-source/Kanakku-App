@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { TransactionType, NeedWantType, TransferType } from '../../types';
-import { parseSmartVoiceTransaction } from '../../utils/voiceParser';
+import { parseSmartVoiceTransaction, ParsedVoiceResult } from '../../utils/voiceParser';
 
 // Speech Recognition Type Definitions
 declare global {
@@ -40,7 +40,7 @@ export const AddTransactionModal: React.FC = () => {
   const [description, setDescription] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [expenseLocationId, setExpenseLocationId] = useState<string>('');
-  const [needWant, setNeedWant] = useState<NeedWantType>('Need'); // MANDATORY
+  const [needWant, setNeedWant] = useState<NeedWantType>('Need');
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
 
   // Module B (Income) Fields
@@ -56,8 +56,18 @@ export const AddTransactionModal: React.FC = () => {
   // Voice Input States
   const [isListening, setIsListening] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
-  const [voiceSuccessMsg, setVoiceSuccessMsg] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  // ─── Voice Review Modal State ────────────────────────────────────────────────
+  const [voiceReviewData, setVoiceReviewData] = useState<ParsedVoiceResult | null>(null);
+  const [reviewAmountStr, setReviewAmountStr] = useState<string>('');
+  const [reviewType, setReviewType] = useState<TransactionType>('expense');
+  const [reviewCategory, setReviewCategory] = useState<string>('');
+  const [reviewSource, setReviewSource] = useState<string>('');
+  const [reviewLocationId, setReviewLocationId] = useState<string>('');
+  const [reviewNeedWant, setReviewNeedWant] = useState<NeedWantType>('Need');
+  const [reviewRawText, setReviewRawText] = useState<string>('');
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Initialize dropdown defaults
   useEffect(() => {
@@ -85,15 +95,11 @@ export const AddTransactionModal: React.FC = () => {
     }
   }, [incomeSources, selectedSource]);
 
-  // Clean up speech recognition
+  // Clean up speech recognition on unmount
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {
-          // Ignore
-        }
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
       }
     };
   }, []);
@@ -105,36 +111,83 @@ export const AddTransactionModal: React.FC = () => {
     setNeedWant(defaultNeed ? 'Need' : 'Want');
   };
 
-  // Smart Voice Input Parser with flexible ordering in Tamil / Tanglish / English
+  // ─── Voice Parser: populate Review Modal instead of saving directly ──────────
   const handleSmartVoiceInput = (rawText: string) => {
     if (!rawText.trim()) return;
 
     const parsed = parseSmartVoiceTransaction(rawText, categories, locations, incomeSources);
 
-    setActiveType(parsed.type);
-    setNeedWant(parsed.needWant);
-    setSelectedCategory(parsed.categoryName);
-    setSelectedSource(parsed.sourceName);
-    setExpenseLocationId(parsed.locationId);
-    setIncomeLocationId(parsed.locationId);
-    setSingleLocationId(parsed.locationId);
-    if (parsed.fromLocationId) setFromLocationId(parsed.fromLocationId);
-    if (parsed.toLocationId) setToLocationId(parsed.toLocationId);
-    setTransferType(parsed.transferType);
-    setNotes(parsed.cleanNote);
+    // Populate review state
+    setReviewRawText(rawText.trim());
+    setReviewType(parsed.type);
+    setReviewNeedWant(parsed.needWant);
+    setReviewCategory(parsed.categoryName);
+    setReviewSource(parsed.sourceName);
+    setReviewLocationId(parsed.locationId);
+    setReviewAmountStr(parsed.amount && parsed.amount > 0 ? parsed.amount.toString() : '');
 
-    if (parsed.amount && parsed.amount > 0) {
-      setAmountStr(parsed.amount.toString());
-      setDescription(rawText.trim());
-      setVoiceSuccessMsg(
-        `✓ Recognized: ${getCurrencySymbol()}${parsed.amount} • [${parsed.type.toUpperCase()}] • ${parsed.categoryName} • [${parsed.needWant.toUpperCase()}]`
-      );
-    } else {
-      setDescription(rawText.trim());
-      showToast(`Heard: "${rawText}". Please enter amount.`);
+    // Open the review modal
+    setVoiceReviewData(parsed);
+    setIsListening(false);
+  };
+
+  // ─── Confirm & Save from Review Modal ────────────────────────────────────────
+  const handleConfirmVoice = () => {
+    const parsedAmount = parseFloat(reviewAmountStr);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      showToast('Please enter a valid positive amount before confirming.');
+      return;
     }
 
-    setIsListening(false);
+    const dateLabel = dateChoice === 'Custom' ? customDate : dateChoice;
+    setIsSaving(true);
+
+    setTimeout(() => {
+      if (reviewType === 'expense') {
+        addExpense({
+          description: reviewRawText || reviewCategory || 'Expense',
+          category: reviewCategory || categories[0]?.name || 'Other Expenses',
+          amount: parsedAmount,
+          locationId: reviewLocationId || locations[0]?.id || '',
+          needWant: reviewNeedWant,
+          date: dateLabel,
+          notes: `Voice: "${reviewRawText}"`,
+          isRecurring: false,
+        });
+      } else if (reviewType === 'income') {
+        addIncome({
+          source: reviewSource || incomeSources[0]?.name || 'Salary / Wages',
+          amount: parsedAmount,
+          locationId: reviewLocationId || locations[0]?.id || '',
+          date: dateLabel,
+          notes: `Voice: "${reviewRawText}"`,
+        });
+      } else if (reviewType === 'transfer' && voiceReviewData) {
+        addTransfer({
+          transferType: voiceReviewData.transferType,
+          amount: parsedAmount,
+          locationId: reviewLocationId,
+          fromLocationId: voiceReviewData.fromLocationId,
+          toLocationId: voiceReviewData.toLocationId,
+          date: dateLabel,
+          notes: `Voice: "${reviewRawText}"`,
+        });
+      }
+
+      setIsSaving(false);
+      setVoiceReviewData(null);
+      setIsAddModalOpen(false);
+      setAmountStr('');
+      setDescription('');
+      setNotes('');
+    }, 180);
+  };
+
+  // ─── Cancel Review Modal ─────────────────────────────────────────────────────
+  const handleCancelVoiceReview = () => {
+    setVoiceReviewData(null);
+    setReviewAmountStr('');
+    setReviewRawText('');
   };
 
   const startVoiceInput = () => {
@@ -155,7 +208,6 @@ export const AddTransactionModal: React.FC = () => {
       recognition.onstart = () => {
         setIsListening(true);
         setTranscript('');
-        setVoiceSuccessMsg(null);
       };
 
       recognition.onresult = (event: any) => {
@@ -187,17 +239,13 @@ export const AddTransactionModal: React.FC = () => {
 
   const stopVoiceInput = () => {
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // Ignore
-      }
+      try { recognitionRef.current.stop(); } catch { /* ignore */ }
     }
     setIsListening(false);
     if (transcript) handleSmartVoiceInput(transcript);
   };
 
-  // Form Submit Handler
+  // Form Submit Handler (for manual form)
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amountStr);
@@ -211,19 +259,17 @@ export const AddTransactionModal: React.FC = () => {
 
     setTimeout(() => {
       if (activeType === 'expense') {
-        // Module C: Expense Tracker (Mandatory Need/Want)
         addExpense({
           description: description.trim() || selectedCategory || 'Expense',
           category: selectedCategory || categories[0]?.name || 'Other Expenses',
           amount: parsedAmount,
           locationId: expenseLocationId || locations[0]?.id || '',
-          needWant, // Mandatory
+          needWant,
           date: dateLabel,
           notes: notes.trim() || undefined,
           isRecurring,
         });
       } else if (activeType === 'income') {
-        // Module B: Income Tracker
         addIncome({
           source: selectedSource || incomeSources[0]?.name || 'Salary / Wages',
           amount: parsedAmount,
@@ -232,7 +278,6 @@ export const AddTransactionModal: React.FC = () => {
           notes: notes.trim() || undefined,
         });
       } else if (activeType === 'transfer') {
-        // Module D: Transfers (Strictly non-expense)
         if (transferType === 'transfer' && fromLocationId === toLocationId) {
           showToast('Source and destination locations must be different');
           setIsSaving(false);
@@ -258,450 +303,655 @@ export const AddTransactionModal: React.FC = () => {
     }, 180);
   };
 
+  // ─── Type badge helper ────────────────────────────────────────────────────────
+  const typeBadgeClass: Record<TransactionType, string> = {
+    expense: 'bg-rose-500/15 text-rose-500 border border-rose-500/30',
+    income:  'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30',
+    transfer:'bg-blue-500/15 text-[#0066FF] border border-blue-500/30',
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
-      <div className="w-full h-full md:h-auto md:max-h-[92vh] md:max-w-lg bg-white dark:bg-[#141B2A] text-black dark:text-white md:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-neutral-200 dark:border-[#243048] animate-slideUp transition-colors">
-        {/* Modal Header */}
-        <header className="w-full top-0 bg-white dark:bg-[#141B2A] flex justify-between items-center px-6 py-4 border-b border-neutral-200 dark:border-[#243048]">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                if (isListening) stopVoiceInput();
-                setIsAddModalOpen(false);
-              }}
-              className="p-1 text-black dark:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors active:scale-95 cursor-pointer"
-              aria-label="Close"
-            >
-              <span className="material-symbols-outlined text-2xl font-black">close</span>
-            </button>
-            <h2 className="font-black text-xl text-black dark:text-white tracking-tight">
-              Add Transaction
-            </h2>
-          </div>
+    <>
+      {/* ═══════════════════════════════════════════════════════════════════════
+          VOICE REVIEW MODAL — shown above the Add Transaction modal
+          ═══════════════════════════════════════════════════════════════════════ */}
+      {voiceReviewData && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-sm bg-white dark:bg-[#141B2A] text-black dark:text-white rounded-3xl shadow-2xl border border-neutral-200 dark:border-[#243048] overflow-hidden animate-slideUp">
 
-          {/* Voice Input Button */}
-          <button
-            type="button"
-            onClick={isListening ? stopVoiceInput : startVoiceInput}
-            title={isListening ? 'Stop Listening' : 'Voice Input (Tanglish / English / Tamil)'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all cursor-pointer ${
-              isListening
-                ? 'bg-[#FF2D55] text-white animate-pulse shadow-md shadow-rose-500/30'
-                : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95'
-            }`}
-          >
-            <span className="material-symbols-outlined text-lg font-black">
-              {isListening ? 'mic' : 'mic_none'}
-            </span>
-            <span>{isListening ? 'Listening...' : 'Smart Voice'}</span>
-          </button>
-        </header>
-
-        {/* Live Voice Banner */}
-        {isListening && (
-          <div className="bg-black dark:bg-[#0B0F17] text-white px-6 py-4 flex flex-col items-center justify-center gap-2 animate-fadeIn border-b border-neutral-800 dark:border-[#243048]">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#FF2D55] animate-ping" />
-              <span className="text-xs font-black uppercase tracking-wider text-[#00C853]">
-                Smart Tanglish/Tamil AI Listening...
-              </span>
-            </div>
-            <p className="text-sm font-bold text-center text-neutral-200 italic min-h-[1.5rem]">
-              {transcript ? `"${transcript}"` : 'Say e.g. "Kaalaile tea 20 rupees cash want" or "1500 petrol bank need"...'}
-            </p>
-            <button
-              type="button"
-              onClick={stopVoiceInput}
-              className="mt-1 text-[11px] font-black text-neutral-400 hover:text-white underline cursor-pointer"
-            >
-              Tap to Finish Speaking
-            </button>
-          </div>
-        )}
-
-        {voiceSuccessMsg && (
-          <div className="bg-[#00C853] text-white px-6 py-2.5 text-center text-xs font-black animate-fadeIn flex items-center justify-center gap-2">
-            <span className="material-symbols-outlined text-base">check_circle</span>
-            {voiceSuccessMsg}
-          </div>
-        )}
-
-        {/* Segmented Mode Selector: Expense | Income | Transfer */}
-        <div className="px-6 pt-4">
-          <div className="flex bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] p-1 rounded-2xl">
-            <button
-              type="button"
-              onClick={() => setActiveType('expense')}
-              className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
-                activeType === 'expense'
-                  ? 'bg-white dark:bg-[#243048] text-[#FF2D55] shadow-sm'
-                  : 'text-black dark:text-neutral-300 hover:opacity-80'
-              }`}
-            >
-              Expense
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveType('income')}
-              className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
-                activeType === 'income'
-                  ? 'bg-white dark:bg-[#243048] text-[#00C853] shadow-sm'
-                  : 'text-black dark:text-neutral-300 hover:opacity-80'
-              }`}
-            >
-              Income
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveType('transfer')}
-              className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
-                activeType === 'transfer'
-                  ? 'bg-white dark:bg-[#243048] text-[#0066FF] shadow-sm'
-                  : 'text-black dark:text-neutral-300 hover:opacity-80'
-              }`}
-            >
-              Transfer
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable Form Body */}
-        <form onSubmit={handleSave} className="flex-1 overflow-y-auto px-6 py-4 space-y-5 pb-28">
-          {/* Amount Display */}
-          <div className="flex flex-col items-center justify-center pt-2">
-            <span className="text-xs font-black uppercase tracking-widest text-neutral-500 dark:text-neutral-400 mb-1">
-              Amount
-            </span>
-            <div className="flex items-center justify-center gap-1 w-full">
-              <span className="text-4xl md:text-5xl font-black text-black dark:text-white select-none">
-                {getCurrencySymbol()}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                autoFocus
-                placeholder="0.00"
-                value={amountStr}
-                onChange={(e) => setAmountStr(e.target.value)}
-                className="w-56 text-center text-4xl md:text-5xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"
-              />
-            </div>
-          </div>
-
-          {/* ========================================== */}
-          {/* MODULE C: EXPENSE TRACKER SPECIFIC FIELDS */}
-          {/* ========================================== */}
-          {activeType === 'expense' && (
-            <div className="space-y-4">
-              {/* MANDATORY NEED VS. WANT TAG */}
-              <div className="p-4 rounded-2xl bg-black dark:bg-[#0B0F17] text-white border border-neutral-800 dark:border-[#243048] space-y-2.5 shadow-md">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-lg text-amber-400">psychology</span>
-                    <span className="text-xs font-black uppercase tracking-wider text-white">
-                      Need vs. Want Tag <span className="text-rose-400">*Mandatory</span>
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-bold text-neutral-400">Spending Psychology</span>
+            {/* Header */}
+            <div className="px-5 pt-5 pb-4 border-b border-neutral-100 dark:border-[#243048]">
+              <div className="flex items-center gap-2.5 mb-1">
+                <div className="w-8 h-8 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-violet-500 text-lg">auto_awesome</span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 p-1 bg-neutral-900 dark:bg-[#141B2A] rounded-xl border border-neutral-800 dark:border-[#243048]">
-                  <button
-                    type="button"
-                    onClick={() => setNeedWant('Need')}
-                    className={`py-2.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      needWant === 'Need'
-                        ? 'bg-[#0052FF] text-white shadow-md'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-base">check_circle</span>
-                    <span>Essential NEED</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setNeedWant('Want')}
-                    className={`py-2.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      needWant === 'Want'
-                        ? 'bg-[#00C853] text-white shadow-md'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-base">favorite</span>
-                    <span>Lifestyle WANT</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Description Input */}
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g., Grocery at Supermarket, Dinner with friends"
-                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
-                />
-              </div>
-
-              {/* Category Grid */}
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-2">
-                  Category ({categories.length})
-                </label>
-                <div className="grid grid-cols-4 gap-2.5 max-h-40 overflow-y-auto p-1">
-                  {categories.map((cat) => {
-                    const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => handleCategorySelect(cat.name, cat.defaultNeed)}
-                        className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-black text-white dark:bg-white dark:text-black shadow-md scale-102'
-                            : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700'
-                        }`}
-                      >
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm"
-                          style={{
-                            backgroundColor: isSelected ? (isSelected && !document.documentElement.classList.contains('dark') ? '#FFFFFF' : '#0B0F17') : cat.color || '#0066FF',
-                            color: isSelected ? (isSelected && !document.documentElement.classList.contains('dark') ? '#000000' : '#FFFFFF') : '#FFFFFF',
-                          }}
-                        >
-                          <span className="material-symbols-outlined text-base">{cat.icon}</span>
-                        </div>
-                        <span className="text-[10px] font-black truncate max-w-full">
-                          {cat.name}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Expense Money Location */}
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                  Deduct from Location
-                </label>
-                <select
-                  value={expenseLocationId}
-                  onChange={(e) => setExpenseLocationId(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
-                >
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
-                      {loc.name} (Balance: {formatMoney(getLocationBalance(loc.id))})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================== */}
-          {/* MODULE B: INCOME TRACKER SPECIFIC FIELDS */}
-          {/* ========================================== */}
-          {activeType === 'income' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                  Income Source
-                </label>
-                <select
-                  value={selectedSource}
-                  onChange={(e) => setSelectedSource(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
-                >
-                  {incomeSources.map((src) => (
-                    <option key={src.id} value={src.name} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
-                      {src.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                  Deposit to Location
-                </label>
-                <select
-                  value={incomeLocationId}
-                  onChange={(e) => setIncomeLocationId(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
-                >
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
-                      {loc.name} (Current: {formatMoney(getLocationBalance(loc.id))})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================== */}
-          {/* MODULE D: TRANSFERS SPECIFIC FIELDS */}
-          {/* ========================================== */}
-          {activeType === 'transfer' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-2xl bg-[#0066FF]/10 dark:bg-[#0066FF]/20 border border-[#0066FF]/20 text-[#0066FF] dark:text-[#60A5FA] flex items-center gap-2.5 text-xs font-bold">
-                <span className="material-symbols-outlined text-lg shrink-0">info</span>
-                <span>Transfers adjust location balances directly and do <strong>NOT</strong> count toward total expenses.</span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                  Transfer Type
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'transfer', label: 'Between Locations' },
-                    { id: 'deposit', label: 'Deposit' },
-                    { id: 'withdrawal', label: 'Withdrawal' },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTransferType(t.id as TransferType)}
-                      className={`py-2 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                        transferType === t.id
-                          ? 'bg-black text-white dark:bg-white dark:text-black shadow-sm'
-                          : 'bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-700'
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {transferType === 'transfer' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-black text-black dark:text-neutral-300 uppercase mb-1">
-                      From Location
-                    </label>
-                    <select
-                      value={fromLocationId}
-                      onChange={(e) => setFromLocationId(e.target.value)}
-                      className="w-full p-2.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-xs border border-neutral-200 dark:border-[#2E3C56] outline-none"
-                    >
-                      {locations.map((loc) => (
-                        <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
-                          {loc.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black text-black dark:text-neutral-300 uppercase mb-1">
-                      To Location
-                    </label>
-                    <select
-                      value={toLocationId}
-                      onChange={(e) => setToLocationId(e.target.value)}
-                      className="w-full p-2.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-xs border border-neutral-200 dark:border-[#2E3C56] outline-none"
-                    >
-                      {locations.map((loc) => (
-                        <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
-                          {loc.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ) : (
                 <div>
-                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
-                    {transferType === 'deposit' ? 'Target Location' : 'Source Location'}
+                  <h3 className="font-black text-base text-black dark:text-white leading-tight">
+                    Review AI-Parsed Transaction
+                  </h3>
+                  <p className="text-[11px] font-bold text-neutral-400 dark:text-neutral-500">
+                    Correct any mistakes before saving
+                  </p>
+                </div>
+              </div>
+              {/* Raw transcript reference */}
+              {reviewRawText && (
+                <div className="mt-3 px-3 py-2 bg-neutral-50 dark:bg-[#0B0F17] rounded-xl border border-neutral-200 dark:border-[#2E3C56]">
+                  <p className="text-[11px] font-bold text-neutral-400 dark:text-neutral-500 mb-0.5 uppercase tracking-wider">
+                    You said
+                  </p>
+                  <p className="text-xs font-bold text-black dark:text-white italic">
+                    "{reviewRawText}"
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Editable Fields */}
+            <div className="px-5 py-4 space-y-4">
+
+              {/* Amount — fully editable */}
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                  Amount <span className="text-rose-400">*</span>
+                </label>
+                <div className="flex items-center gap-2 px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56] focus-within:ring-2 focus-within:ring-black dark:focus-within:ring-white transition-all">
+                  <span className="text-2xl font-black text-black dark:text-white select-none">
+                    {getCurrencySymbol()}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    autoFocus
+                    placeholder="0.00"
+                    value={reviewAmountStr}
+                    onChange={(e) => setReviewAmountStr(e.target.value)}
+                    className="flex-1 text-2xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"
+                  />
+                  {/* Transaction type badge — read-only indicator */}
+                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${typeBadgeClass[reviewType]}`}>
+                    {reviewType}
+                  </span>
+                </div>
+                {!reviewAmountStr && (
+                  <p className="text-[11px] text-amber-500 font-bold mt-1 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">warning</span>
+                    Amount not recognized — please enter manually
+                  </p>
+                )}
+              </div>
+
+              {/* Category (expense) or Income Source */}
+              {reviewType === 'expense' && (
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                    Category
                   </label>
                   <select
-                    value={singleLocationId}
-                    onChange={(e) => setSingleLocationId(e.target.value)}
+                    value={reviewCategory}
+                    onChange={(e) => {
+                      setReviewCategory(e.target.value);
+                      const cat = categories.find((c) => c.name === e.target.value);
+                      if (cat) setReviewNeedWant(cat.defaultNeed ? 'Need' : 'Want');
+                    }}
                     className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
                   >
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
-                        {loc.name} (Balance: {formatMoney(getLocationBalance(loc.id))})
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.name} className="bg-white dark:bg-[#1C263A]">
+                        {cat.name}
                       </option>
                     ))}
                   </select>
                 </div>
               )}
+
+              {reviewType === 'income' && (
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                    Income Source
+                  </label>
+                  <select
+                    value={reviewSource}
+                    onChange={(e) => setReviewSource(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                  >
+                    {incomeSources.map((src) => (
+                      <option key={src.id} value={src.name} className="bg-white dark:bg-[#1C263A]">
+                        {src.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Location */}
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                  {reviewType === 'income' ? 'Deposit to Location' : 'Deduct from Location'}
+                </label>
+                <select
+                  value={reviewLocationId}
+                  onChange={(e) => setReviewLocationId(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                >
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
+                      {loc.name} ({formatMoney(getLocationBalance(loc.id))})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Need / Want toggle — expense only */}
+              {reviewType === 'expense' && (
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                    Need vs. Want
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56]">
+                    <button
+                      type="button"
+                      onClick={() => setReviewNeedWant('Need')}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        reviewNeedWant === 'Need'
+                          ? 'bg-[#0052FF] text-white shadow-md'
+                          : 'text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-sm">check_circle</span>
+                      Essential NEED
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReviewNeedWant('Want')}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        reviewNeedWant === 'Want'
+                          ? 'bg-[#00C853] text-white shadow-md'
+                          : 'text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-sm">favorite</span>
+                      Lifestyle WANT
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="px-5 pb-5 flex gap-3">
+              {/* Cancel */}
+              <button
+                type="button"
+                onClick={handleCancelVoiceReview}
+                className="flex-1 py-3.5 rounded-2xl border border-neutral-200 dark:border-[#2E3C56] bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-black text-sm hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-base">close</span>
+                Cancel
+              </button>
+
+              {/* Confirm & Save */}
+              <button
+                type="button"
+                onClick={handleConfirmVoice}
+                disabled={isSaving || !reviewAmountStr || parseFloat(reviewAmountStr) <= 0}
+                className="flex-[1.6] py-3.5 rounded-2xl bg-black text-white dark:bg-white dark:text-black font-black text-sm shadow-xl hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSaving ? (
+                  <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-base">check_circle</span>
+                    Confirm &amp; Save
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MAIN ADD TRANSACTION MODAL
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+        <div className="w-full h-full md:h-auto md:max-h-[92vh] md:max-w-lg bg-white dark:bg-[#141B2A] text-black dark:text-white md:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-neutral-200 dark:border-[#243048] animate-slideUp transition-colors">
+          {/* Modal Header */}
+          <header className="w-full top-0 bg-white dark:bg-[#141B2A] flex justify-between items-center px-6 py-4 border-b border-neutral-200 dark:border-[#243048]">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isListening) stopVoiceInput();
+                  setIsAddModalOpen(false);
+                }}
+                className="p-1 text-black dark:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors active:scale-95 cursor-pointer"
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined text-2xl font-black">close</span>
+              </button>
+              <h2 className="font-black text-xl text-black dark:text-white tracking-tight">
+                Add Transaction
+              </h2>
+            </div>
+
+            {/* Voice Input Button */}
+            <button
+              type="button"
+              onClick={isListening ? stopVoiceInput : startVoiceInput}
+              title={isListening ? 'Stop Listening' : 'Voice Input (Tanglish / English / Tamil)'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all cursor-pointer ${
+                isListening
+                  ? 'bg-[#FF2D55] text-white animate-pulse shadow-md shadow-rose-500/30'
+                  : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95'
+              }`}
+            >
+              <span className="material-symbols-outlined text-lg font-black">
+                {isListening ? 'mic' : 'mic_none'}
+              </span>
+              <span>{isListening ? 'Listening...' : 'Smart Voice'}</span>
+            </button>
+          </header>
+
+          {/* Live Voice Banner */}
+          {isListening && (
+            <div className="bg-black dark:bg-[#0B0F17] text-white px-6 py-4 flex flex-col items-center justify-center gap-2 animate-fadeIn border-b border-neutral-800 dark:border-[#243048]">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-[#FF2D55] animate-ping" />
+                <span className="text-xs font-black uppercase tracking-wider text-[#00C853]">
+                  Smart Tanglish/Tamil AI Listening...
+                </span>
+              </div>
+              <p className="text-sm font-bold text-center text-neutral-200 italic min-h-[1.5rem]">
+                {transcript ? `"${transcript}"` : 'Say e.g. "Kaalaile tea 20 rupees cash want" or "1500 petrol bank need"...'}
+              </p>
+              <button
+                type="button"
+                onClick={stopVoiceInput}
+                className="mt-1 text-[11px] font-black text-neutral-400 hover:text-white underline cursor-pointer"
+              >
+                Tap to Finish Speaking
+              </button>
             </div>
           )}
 
-          {/* Common Date Picker & Notes */}
-          <div className="bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-lg text-black dark:text-white">calendar_today</span>
-                <span className="text-xs font-black text-black dark:text-white">Date</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {(['Today', 'Yesterday', 'Custom'] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setDateChoice(d)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
-                      dateChoice === d
-                        ? 'bg-black text-white dark:bg-white dark:text-black'
-                        : 'bg-white dark:bg-[#141B2A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white'
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {dateChoice === 'Custom' && (
-              <input
-                type="date"
-                value={customDate}
-                onChange={(e) => setCustomDate(e.target.value)}
-                className="w-full p-2 bg-white dark:bg-[#141B2A] rounded-xl text-xs font-bold text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56]"
-              />
-            )}
-
-            <div className="flex items-center gap-2 pt-2 border-t border-neutral-200 dark:border-[#2E3C56]">
-              <span className="material-symbols-outlined text-lg text-black dark:text-white">edit_note</span>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add optional notes / tags..."
-                className="flex-1 bg-transparent border-none outline-none text-xs font-bold text-black dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:ring-0 p-0"
-              />
+          {/* Segmented Mode Selector: Expense | Income | Transfer */}
+          <div className="px-6 pt-4">
+            <div className="flex bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] p-1 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setActiveType('expense')}
+                className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
+                  activeType === 'expense'
+                    ? 'bg-white dark:bg-[#243048] text-[#FF2D55] shadow-sm'
+                    : 'text-black dark:text-neutral-300 hover:opacity-80'
+                }`}
+              >
+                Expense
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveType('income')}
+                className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
+                  activeType === 'income'
+                    ? 'bg-white dark:bg-[#243048] text-[#00C853] shadow-sm'
+                    : 'text-black dark:text-neutral-300 hover:opacity-80'
+                }`}
+              >
+                Income
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveType('transfer')}
+                className={`flex-1 py-2.5 rounded-xl text-xs md:text-sm font-black transition-all cursor-pointer ${
+                  activeType === 'transfer'
+                    ? 'bg-white dark:bg-[#243048] text-[#0066FF] shadow-sm'
+                    : 'text-black dark:text-neutral-300 hover:opacity-80'
+                }`}
+              >
+                Transfer
+              </button>
             </div>
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSaving || !amountStr || parseFloat(amountStr) <= 0}
-            className="w-full bg-black text-white dark:bg-white dark:text-black font-black text-base py-4 rounded-2xl shadow-xl hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {isSaving ? (
-              <span className="inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              `Save ${activeType.charAt(0).toUpperCase() + activeType.slice(1)}`
+          {/* Scrollable Form Body */}
+          <form onSubmit={handleSave} className="flex-1 overflow-y-auto px-6 py-4 space-y-5 pb-28">
+            {/* Amount Display */}
+            <div className="flex flex-col items-center justify-center pt-2">
+              <span className="text-xs font-black uppercase tracking-widest text-neutral-500 dark:text-neutral-400 mb-1">
+                Amount
+              </span>
+              <div className="flex items-center justify-center gap-1 w-full">
+                <span className="text-4xl md:text-5xl font-black text-black dark:text-white select-none">
+                  {getCurrencySymbol()}
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  autoFocus
+                  placeholder="0.00"
+                  value={amountStr}
+                  onChange={(e) => setAmountStr(e.target.value)}
+                  className="w-56 text-center text-4xl md:text-5xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"
+                />
+              </div>
+            </div>
+
+            {/* ========================================== */}
+            {/* MODULE C: EXPENSE TRACKER SPECIFIC FIELDS */}
+            {/* ========================================== */}
+            {activeType === 'expense' && (
+              <div className="space-y-4">
+                {/* MANDATORY NEED VS. WANT TAG */}
+                <div className="p-4 rounded-2xl bg-black dark:bg-[#0B0F17] text-white border border-neutral-800 dark:border-[#243048] space-y-2.5 shadow-md">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg text-amber-400">psychology</span>
+                      <span className="text-xs font-black uppercase tracking-wider text-white">
+                        Need vs. Want Tag <span className="text-rose-400">*Mandatory</span>
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-neutral-400">Spending Psychology</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-neutral-900 dark:bg-[#141B2A] rounded-xl border border-neutral-800 dark:border-[#243048]">
+                    <button
+                      type="button"
+                      onClick={() => setNeedWant('Need')}
+                      className={`py-2.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        needWant === 'Need'
+                          ? 'bg-[#0052FF] text-white shadow-md'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-base">check_circle</span>
+                      <span>Essential NEED</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setNeedWant('Want')}
+                      className={`py-2.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        needWant === 'Want'
+                          ? 'bg-[#00C853] text-white shadow-md'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-base">favorite</span>
+                      <span>Lifestyle WANT</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Description Input */}
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g., Grocery at Supermarket, Dinner with friends"
+                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-bold text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+                  />
+                </div>
+
+                {/* Category Grid */}
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-2">
+                    Category ({categories.length})
+                  </label>
+                  <div className="grid grid-cols-4 gap-2.5 max-h-40 overflow-y-auto p-1">
+                    {categories.map((cat) => {
+                      const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => handleCategorySelect(cat.name, cat.defaultNeed)}
+                          className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-black text-white dark:bg-white dark:text-black shadow-md scale-102'
+                              : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                          }`}
+                        >
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm"
+                            style={{
+                              backgroundColor: isSelected ? (isSelected && !document.documentElement.classList.contains('dark') ? '#FFFFFF' : '#0B0F17') : cat.color || '#0066FF',
+                              color: isSelected ? (isSelected && !document.documentElement.classList.contains('dark') ? '#000000' : '#FFFFFF') : '#FFFFFF',
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-base">{cat.icon}</span>
+                          </div>
+                          <span className="text-[10px] font-black truncate max-w-full">
+                            {cat.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Expense Money Location */}
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                    Deduct from Location
+                  </label>
+                  <select
+                    value={expenseLocationId}
+                    onChange={(e) => setExpenseLocationId(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
+                        {loc.name} (Balance: {formatMoney(getLocationBalance(loc.id))})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             )}
-          </button>
-        </form>
+
+            {/* ========================================== */}
+            {/* MODULE B: INCOME TRACKER SPECIFIC FIELDS */}
+            {/* ========================================== */}
+            {activeType === 'income' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                    Income Source
+                  </label>
+                  <select
+                    value={selectedSource}
+                    onChange={(e) => setSelectedSource(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                  >
+                    {incomeSources.map((src) => (
+                      <option key={src.id} value={src.name} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
+                        {src.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                    Deposit to Location
+                  </label>
+                  <select
+                    value={incomeLocationId}
+                    onChange={(e) => setIncomeLocationId(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A] text-black dark:text-white">
+                        {loc.name} (Current: {formatMoney(getLocationBalance(loc.id))})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================== */}
+            {/* MODULE D: TRANSFERS SPECIFIC FIELDS */}
+            {/* ========================================== */}
+            {activeType === 'transfer' && (
+              <div className="space-y-4">
+                <div className="p-3.5 rounded-2xl bg-[#0066FF]/10 dark:bg-[#0066FF]/20 border border-[#0066FF]/20 text-[#0066FF] dark:text-[#60A5FA] flex items-center gap-2.5 text-xs font-bold">
+                  <span className="material-symbols-outlined text-lg shrink-0">info</span>
+                  <span>Transfers adjust location balances directly and do <strong>NOT</strong> count toward total expenses.</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                    Transfer Type
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'transfer', label: 'Between Locations' },
+                      { id: 'deposit', label: 'Deposit' },
+                      { id: 'withdrawal', label: 'Withdrawal' },
+                    ].map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTransferType(t.id as TransferType)}
+                        className={`py-2 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          transferType === t.id
+                            ? 'bg-black text-white dark:bg-white dark:text-black shadow-sm'
+                            : 'bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {transferType === 'transfer' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-black text-black dark:text-neutral-300 uppercase mb-1">
+                        From Location
+                      </label>
+                      <select
+                        value={fromLocationId}
+                        onChange={(e) => setFromLocationId(e.target.value)}
+                        className="w-full p-2.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-xs border border-neutral-200 dark:border-[#2E3C56] outline-none"
+                      >
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-black text-black dark:text-neutral-300 uppercase mb-1">
+                        To Location
+                      </label>
+                      <select
+                        value={toLocationId}
+                        onChange={(e) => setToLocationId(e.target.value)}
+                        className="w-full p-2.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-xl text-black dark:text-white font-bold text-xs border border-neutral-200 dark:border-[#2E3C56] outline-none"
+                      >
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-black text-black dark:text-neutral-200 uppercase tracking-wider mb-1">
+                      {transferType === 'deposit' ? 'Target Location' : 'Source Location'}
+                    </label>
+                    <select
+                      value={singleLocationId}
+                      onChange={(e) => setSingleLocationId(e.target.value)}
+                      className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                    >
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
+                          {loc.name} (Balance: {formatMoney(getLocationBalance(loc.id))})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Common Date Picker & Notes */}
+            <div className="bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-lg text-black dark:text-white">calendar_today</span>
+                  <span className="text-xs font-black text-black dark:text-white">Date</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {(['Today', 'Yesterday', 'Custom'] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDateChoice(d)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                        dateChoice === d
+                          ? 'bg-black text-white dark:bg-white dark:text-black'
+                          : 'bg-white dark:bg-[#141B2A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {dateChoice === 'Custom' && (
+                <input
+                  type="date"
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                  className="w-full p-2 bg-white dark:bg-[#141B2A] rounded-xl text-xs font-bold text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56]"
+                />
+              )}
+
+              <div className="flex items-center gap-2 pt-2 border-t border-neutral-200 dark:border-[#2E3C56]">
+                <span className="material-symbols-outlined text-lg text-black dark:text-white">edit_note</span>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add optional notes / tags..."
+                  className="flex-1 bg-transparent border-none outline-none text-xs font-bold text-black dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:ring-0 p-0"
+                />
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isSaving || !amountStr || parseFloat(amountStr) <= 0}
+              className="w-full bg-black text-white dark:bg-white dark:text-black font-black text-base py-4 rounded-2xl shadow-xl hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isSaving ? (
+                <span className="inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                `Save ${activeType.charAt(0).toUpperCase() + activeType.slice(1)}`
+              )}
+            </button>
+          </form>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
