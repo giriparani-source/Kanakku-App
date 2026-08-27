@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { initializeFirestore } from "firebase/firestore";
+import { initializeFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 
 // Securely read Firebase credentials from environment variables using Vite's import.meta.env
 const firebaseConfig = {
@@ -24,6 +24,22 @@ export const auth = getAuth(app);
 // Initialize Firestore with ignoreUndefinedProperties enabled for resilient data handling
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
+});
+
+// Enable offline persistence so Firestore data is available when the device is offline.
+// Errors are non-fatal — the app continues to work without offline support if persistence fails.
+enableIndexedDbPersistence(db).catch((err: { code: string }) => {
+  if (err.code === "failed-precondition") {
+    // Multiple tabs are open; persistence can only be enabled in one tab at a time.
+    console.warn(
+      "Firestore offline persistence failed: multiple tabs open (failed-precondition)"
+    );
+  } else if (err.code === "unimplemented") {
+    // The current browser does not support IndexedDB persistence.
+    console.warn(
+      "Firestore offline persistence is not supported in this browser (unimplemented)"
+    );
+  }
 });
 
 // Safe Analytics initialization (only in browser environments where supported)
