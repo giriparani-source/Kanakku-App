@@ -364,7 +364,7 @@ export const AddTransactionModal: React.FC = () => {
                     step="0.01"
                     min="0.01"
                     autoFocus
-                    placeholder="0.00"
+                    placeholder="0"
                     value={reviewAmountStr}
                     onChange={(e) => setReviewAmountStr(e.target.value)}
                     className="flex-1 text-2xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"
@@ -632,7 +632,7 @@ export const AddTransactionModal: React.FC = () => {
                   min="0.01"
                   required
                   autoFocus
-                  placeholder="0.00"
+                  placeholder="0"
                   value={amountStr}
                   onChange={(e) => setAmountStr(e.target.value)}
                   className="w-56 text-center text-4xl md:text-5xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"

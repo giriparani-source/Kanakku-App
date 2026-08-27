@@ -225,6 +225,7 @@ export const TransactionDetailModal: React.FC = () => {
                 step="any"
                 min="0.01"
                 required
+                placeholder="0"
                 value={editAmount}
                 onChange={(e) => setEditAmount(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-black text-sm outline-none border border-neutral-200 dark:border-[#2E3C56] tabular-nums"
