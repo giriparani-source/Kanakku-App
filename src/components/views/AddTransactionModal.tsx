@@ -317,46 +317,46 @@ export const AddTransactionModal: React.FC = () => {
           VOICE REVIEW MODAL — shown above the Add Transaction modal
           ═══════════════════════════════════════════════════════════════════════ */}
       {voiceReviewData && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-sm bg-white dark:bg-[#141B2A] text-black dark:text-white rounded-3xl shadow-2xl border border-neutral-200 dark:border-[#243048] overflow-hidden animate-slideUp">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-md animate-fadeIn overflow-y-auto">
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col bg-white dark:bg-[#141B2A] text-black dark:text-white rounded-3xl shadow-2xl border border-neutral-200 dark:border-[#243048] overflow-hidden animate-slideUp my-auto">
 
             {/* Header */}
-            <div className="px-5 pt-5 pb-4 border-b border-neutral-100 dark:border-[#243048]">
-              <div className="flex items-center gap-2.5 mb-1">
-                <div className="w-8 h-8 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-violet-500 text-lg">auto_awesome</span>
+            <div className="p-6 pb-4 border-b border-neutral-100 dark:border-[#243048] shrink-0">
+              <div className="flex items-center gap-3 mb-1.5">
+                <div className="w-9 h-9 rounded-2xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-violet-500 text-xl">auto_awesome</span>
                 </div>
                 <div>
-                  <h3 className="font-black text-base text-black dark:text-white leading-tight">
+                  <h3 className="font-black text-lg text-black dark:text-white leading-tight">
                     Review AI-Parsed Transaction
                   </h3>
-                  <p className="text-[11px] font-bold text-neutral-400 dark:text-neutral-500">
+                  <p className="text-xs font-bold text-neutral-400 dark:text-neutral-500">
                     Correct any mistakes before saving
                   </p>
                 </div>
               </div>
               {/* Raw transcript reference */}
               {reviewRawText && (
-                <div className="mt-3 px-3 py-2 bg-neutral-50 dark:bg-[#0B0F17] rounded-xl border border-neutral-200 dark:border-[#2E3C56]">
-                  <p className="text-[11px] font-bold text-neutral-400 dark:text-neutral-500 mb-0.5 uppercase tracking-wider">
+                <div className="mt-3.5 p-3.5 bg-neutral-50 dark:bg-[#0B0F17] rounded-2xl border border-neutral-200 dark:border-[#2E3C56]">
+                  <p className="text-[11px] font-black text-neutral-400 dark:text-neutral-500 mb-1 uppercase tracking-wider">
                     You said
                   </p>
-                  <p className="text-xs font-bold text-black dark:text-white italic">
+                  <p className="text-xs font-bold text-black dark:text-white italic leading-relaxed">
                     "{reviewRawText}"
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Editable Fields */}
-            <div className="px-5 py-4 space-y-4">
+            {/* Editable Fields — scrollable body */}
+            <div className="p-6 py-5 space-y-5 overflow-y-auto flex-1">
 
               {/* Amount — fully editable */}
               <div>
-                <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
-                  Amount <span className="text-rose-400">*</span>
+                <label className="block text-xs font-black uppercase tracking-wider text-neutral-600 dark:text-neutral-300 mb-2">
+                  Amount <span className="text-rose-500">*</span>
                 </label>
-                <div className="flex items-center gap-2 px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56] focus-within:ring-2 focus-within:ring-black dark:focus-within:ring-white transition-all">
+                <div className="flex items-center gap-2.5 px-4 py-3.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56] focus-within:ring-2 focus-within:ring-black dark:focus-within:ring-white transition-all">
                   <span className="text-2xl font-black text-black dark:text-white select-none">
                     {getCurrencySymbol()}
                   </span>
@@ -371,12 +371,12 @@ export const AddTransactionModal: React.FC = () => {
                     className="flex-1 text-2xl font-black bg-transparent border-none outline-none focus:ring-0 text-black dark:text-white placeholder-neutral-300 dark:placeholder-neutral-600 tabular-nums"
                   />
                   {/* Transaction type badge — read-only indicator */}
-                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${typeBadgeClass[reviewType]}`}>
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full shrink-0 ${typeBadgeClass[reviewType]}`}>
                     {reviewType}
                   </span>
                 </div>
                 {!reviewAmountStr && (
-                  <p className="text-[11px] text-amber-500 font-bold mt-1 flex items-center gap-1">
+                  <p className="text-xs text-amber-500 font-bold mt-1.5 flex items-center gap-1">
                     <span className="material-symbols-outlined text-sm">warning</span>
                     Amount not recognized — please enter manually
                   </p>
@@ -386,7 +386,7 @@ export const AddTransactionModal: React.FC = () => {
               {/* Category (expense) or Income Source */}
               {reviewType === 'expense' && (
                 <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                  <label className="block text-xs font-black uppercase tracking-wider text-neutral-600 dark:text-neutral-300 mb-2">
                     Category
                   </label>
                   <select
@@ -396,7 +396,7 @@ export const AddTransactionModal: React.FC = () => {
                       const cat = categories.find((c) => c.name === e.target.value);
                       if (cat) setReviewNeedWant(cat.defaultNeed ? 'Need' : 'Want');
                     }}
-                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                    className="w-full px-4 py-3.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
                   >
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.name} className="bg-white dark:bg-[#1C263A]">
@@ -409,13 +409,13 @@ export const AddTransactionModal: React.FC = () => {
 
               {reviewType === 'income' && (
                 <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                  <label className="block text-xs font-black uppercase tracking-wider text-neutral-600 dark:text-neutral-300 mb-2">
                     Income Source
                   </label>
                   <select
                     value={reviewSource}
                     onChange={(e) => setReviewSource(e.target.value)}
-                    className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                    className="w-full px-4 py-3.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
                   >
                     {incomeSources.map((src) => (
                       <option key={src.id} value={src.name} className="bg-white dark:bg-[#1C263A]">
@@ -428,13 +428,13 @@ export const AddTransactionModal: React.FC = () => {
 
               {/* Location */}
               <div>
-                <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-neutral-600 dark:text-neutral-300 mb-2">
                   {reviewType === 'income' ? 'Deposit to Location' : 'Deduct from Location'}
                 </label>
                 <select
                   value={reviewLocationId}
                   onChange={(e) => setReviewLocationId(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
+                  className="w-full px-4 py-3.5 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl text-black dark:text-white font-black text-sm border border-neutral-200 dark:border-[#2E3C56] focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white cursor-pointer"
                 >
                   {locations.map((loc) => (
                     <option key={loc.id} value={loc.id} className="bg-white dark:bg-[#1C263A]">
@@ -447,14 +447,14 @@ export const AddTransactionModal: React.FC = () => {
               {/* Need / Want toggle — expense only */}
               {reviewType === 'expense' && (
                 <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+                  <label className="block text-xs font-black uppercase tracking-wider text-neutral-600 dark:text-neutral-300 mb-2">
                     Need vs. Want
                   </label>
-                  <div className="grid grid-cols-2 gap-2 p-1 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56]">
+                  <div className="grid grid-cols-2 gap-2.5 p-1 bg-[#F4F5F7] dark:bg-[#1C263A] rounded-2xl border border-neutral-200 dark:border-[#2E3C56]">
                     <button
                       type="button"
                       onClick={() => setReviewNeedWant('Need')}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`py-3 px-3.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                         reviewNeedWant === 'Need'
                           ? 'bg-[#0052FF] text-white shadow-md'
                           : 'text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white'
@@ -466,7 +466,7 @@ export const AddTransactionModal: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setReviewNeedWant('Want')}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`py-3 px-3.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                         reviewNeedWant === 'Want'
                           ? 'bg-[#00C853] text-white shadow-md'
                           : 'text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white'
@@ -481,12 +481,12 @@ export const AddTransactionModal: React.FC = () => {
             </div>
 
             {/* Action Buttons */}
-            <div className="px-5 pb-5 flex gap-3">
+            <div className="p-6 pt-4 pb-6 flex gap-3 shrink-0 border-t border-neutral-100 dark:border-[#243048] bg-neutral-50/50 dark:bg-[#141B2A]/50">
               {/* Cancel */}
               <button
                 type="button"
                 onClick={handleCancelVoiceReview}
-                className="flex-1 py-3.5 rounded-2xl border border-neutral-200 dark:border-[#2E3C56] bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-black text-sm hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+                className="flex-1 py-3.5 px-4 rounded-2xl border border-neutral-200 dark:border-[#2E3C56] bg-[#F4F5F7] dark:bg-[#1C263A] text-black dark:text-white font-black text-sm hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined text-base">close</span>
                 Cancel
@@ -497,7 +497,7 @@ export const AddTransactionModal: React.FC = () => {
                 type="button"
                 onClick={handleConfirmVoice}
                 disabled={isSaving || !reviewAmountStr || parseFloat(reviewAmountStr) <= 0}
-                className="flex-[1.6] py-3.5 rounded-2xl bg-black text-white dark:bg-white dark:text-black font-black text-sm shadow-xl hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-[1.6] py-3.5 px-4 rounded-2xl bg-black text-white dark:bg-white dark:text-black font-black text-sm shadow-xl hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSaving ? (
                   <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
