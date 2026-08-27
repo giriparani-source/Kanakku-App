@@ -27,20 +27,29 @@ export const db = initializeFirestore(app, {
 });
 
 // Enable offline persistence so Firestore data is available when the device is offline.
-// Errors are non-fatal — the app continues to work without offline support if persistence fails.
-enableIndexedDbPersistence(db).catch((err: { code: string }) => {
-  if (err.code === "failed-precondition") {
-    // Multiple tabs are open; persistence can only be enabled in one tab at a time.
-    console.warn(
-      "Firestore offline persistence failed: multiple tabs open (failed-precondition)"
-    );
-  } else if (err.code === "unimplemented") {
-    // The current browser does not support IndexedDB persistence.
-    console.warn(
-      "Firestore offline persistence is not supported in this browser (unimplemented)"
-    );
-  }
-});
+// Errors are non-fatal — the app gracefully falls back to online mode if persistence fails.
+if (typeof window !== "undefined") {
+  enableIndexedDbPersistence(db).catch((err: any) => {
+    const errorCode = err?.code || (typeof err === "string" ? err : "");
+    if (errorCode === "failed-precondition") {
+      // Multiple tabs are open at the same time; IndexedDB persistence can only be enabled in one tab.
+      console.warn(
+        "⚠️ [Firestore] Offline persistence failed: multiple tabs open simultaneously ('failed-precondition'). Gracefully falling back to online mode for this session."
+      );
+    } else if (errorCode === "unimplemented") {
+      // The current browser environment lacks full IndexedDB persistence support.
+      console.warn(
+        "⚠️ [Firestore] Offline persistence is not supported in this browser environment ('unimplemented'). Gracefully falling back to standard online mode."
+      );
+    } else {
+      console.warn(
+        "⚠️ [Firestore] Offline persistence could not be activated:",
+        err?.message || err,
+        "— Gracefully operating in online mode."
+      );
+    }
+  });
+}
 
 // Safe Analytics initialization (only in browser environments where supported)
 export let analytics: any = null;

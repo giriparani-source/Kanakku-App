@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { TransactionType, NeedWantType, TransferType } from '../../types';
-import { parseSmartVoiceTransaction, ParsedVoiceResult } from '../../utils/voiceParser';
+import { parseSmartVoiceTransaction, parseVoiceWithGemini, ParsedVoiceResult } from '../../utils/voiceParser';
 
 // Speech Recognition Type Definitions
 declare global {
@@ -112,10 +112,11 @@ export const AddTransactionModal: React.FC = () => {
   };
 
   // ─── Voice Parser: populate Review Modal instead of saving directly ──────────
-  const handleSmartVoiceInput = (rawText: string) => {
+  const handleSmartVoiceInput = async (rawText: string) => {
     if (!rawText.trim()) return;
 
-    const parsed = parseSmartVoiceTransaction(rawText, categories, locations, incomeSources);
+    // Use AI voice parser with instant heuristic fallback
+    const parsed = await parseVoiceWithGemini(rawText, categories, locations, incomeSources);
 
     // Populate review state
     setReviewRawText(rawText.trim());
