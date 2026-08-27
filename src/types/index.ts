@@ -20,6 +20,7 @@ export interface MoneyLocation {
   isSavings?: boolean;
   mask?: string;
   institution?: string;
+  userId?: string;
 }
 
 export interface ExpenseCategory {
@@ -30,12 +31,14 @@ export interface ExpenseCategory {
   textColor: string;
   color: string;
   defaultNeed: boolean;
+  userId?: string;
 }
 
 export interface IncomeSource {
   id: string;
   name: string;
   icon: string;
+  userId?: string;
 }
 
 export interface BaseTransaction {
@@ -46,6 +49,7 @@ export interface BaseTransaction {
   time: string; // e.g. "2:30 PM"
   timestamp: number;
   notes?: string;
+  userId?: string;
 }
 
 export interface IncomeTransaction extends BaseTransaction {
@@ -82,6 +86,7 @@ export interface UserProfile {
   phone: string;
   memberSince: string;
   avatarUrl: string;
+  userId?: string;
 }
 
 export interface AppNotification {
@@ -92,6 +97,7 @@ export interface AppNotification {
   read: boolean;
   icon: string;
   type: 'alert' | 'success' | 'info';
+  userId?: string;
 }
 
 export interface AppSettings {
@@ -103,9 +109,11 @@ export interface AppSettings {
   biometricLock: boolean;
   pinCode: string; // 4-digit PIN
   isPinLockEnabled: boolean; // toggle choice for app security
+  userId?: string;
 }
 
 export interface CategoryBudget {
   category: string;
   limit: number;
+  userId?: string;
 }

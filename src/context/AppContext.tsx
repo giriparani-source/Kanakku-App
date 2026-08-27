@@ -336,8 +336,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubProfile);
 
-        // 2. Subscribe to Settings, Categories, Locations, Income Sources, Budgets, Transactions
-        const unsubSettings = subscribeToSettings((cloudSettings) => {
+        // 2. Subscribe to Settings, Categories, Locations, Income Sources, Budgets, Transactions with strict user.uid isolation
+        const unsubSettings = subscribeToSettings(user.uid, (cloudSettings) => {
           if (cloudSettings) {
             setSettings(cloudSettings);
             localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(cloudSettings));
@@ -345,7 +345,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubSettings);
 
-        const unsubCategories = subscribeToCategories((cloudCategories) => {
+        const unsubCategories = subscribeToCategories(user.uid, (cloudCategories) => {
           if (cloudCategories && cloudCategories.length > 0) {
             setCategories(cloudCategories);
             localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(cloudCategories));
@@ -353,7 +353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubCategories);
 
-        const unsubLocations = subscribeToLocations((cloudLocations) => {
+        const unsubLocations = subscribeToLocations(user.uid, (cloudLocations) => {
           if (cloudLocations && cloudLocations.length > 0) {
             setLocations(cloudLocations);
             localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(cloudLocations));
@@ -361,7 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubLocations);
 
-        const unsubIncomeSources = subscribeToIncomeSources((cloudSources) => {
+        const unsubIncomeSources = subscribeToIncomeSources(user.uid, (cloudSources) => {
           if (cloudSources && cloudSources.length > 0) {
             setIncomeSources(cloudSources);
             localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(cloudSources));
@@ -369,7 +369,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubIncomeSources);
 
-        const unsubBudgets = subscribeToBudgets((cloudBudgets) => {
+        const unsubBudgets = subscribeToBudgets(user.uid, (cloudBudgets) => {
           if (cloudBudgets && cloudBudgets.length > 0) {
             setBudgets(cloudBudgets);
             localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(cloudBudgets));
@@ -377,7 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubsRef.current.push(unsubBudgets);
 
-        const unsubTransactions = subscribeToTransactions((cloudTransactions) => {
+        const unsubTransactions = subscribeToTransactions(user.uid, (cloudTransactions) => {
           setTransactions(cloudTransactions);
           localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cloudTransactions));
           setIsCloudSynced(true);
@@ -623,111 +623,128 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [expenseTransactions, totalExpenses, categories]);
 
   // ==========================================
-  // ASYNC FIRESTORE CRUD ACTIONS
+  // ASYNC FIRESTORE CRUD ACTIONS (UID-ISOLATED)
   // ==========================================
 
+  const getActiveUid = () => currentUser?.uid || auth.currentUser?.uid || '';
+
   const addCategory = async (cat: Omit<ExpenseCategory, 'id'>) => {
+    const uid = getActiveUid();
     const newCat: ExpenseCategory = {
       ...cat,
       id: 'cat-' + Date.now(),
+      userId: uid,
     };
     const updated = [...categories, newCat];
     setCategories(updated);
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(updated));
-    await saveCategoriesToFirestore(updated);
+    if (uid) await saveCategoriesToFirestore(uid, updated);
     showToast(`Category "${cat.name}" saved to Cloud`);
   };
 
   const updateCategory = async (id: string, partial: Partial<ExpenseCategory>) => {
+    const uid = getActiveUid();
     const updated = categories.map((c) => (c.id === id ? { ...c, ...partial } : c));
     setCategories(updated);
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(updated));
-    await saveCategoriesToFirestore(updated);
+    if (uid) await saveCategoriesToFirestore(uid, updated);
     showToast('Category updated in Cloud');
   };
 
   const deleteCategory = async (id: string) => {
+    const uid = getActiveUid();
     const updated = categories.filter((c) => c.id !== id);
     setCategories(updated);
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(updated));
-    await saveCategoriesToFirestore(updated);
+    if (uid) await saveCategoriesToFirestore(uid, updated);
     showToast('Category removed from Cloud');
   };
 
   const reorderCategories = async (newCategories: ExpenseCategory[]) => {
+    const uid = getActiveUid();
     setCategories(newCategories);
     localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(newCategories));
-    await saveCategoriesToFirestore(newCategories);
+    if (uid) await saveCategoriesToFirestore(uid, newCategories);
     showToast('Categories reordered & saved');
   };
 
   const addLocation = async (loc: Omit<MoneyLocation, 'id'>) => {
+    const uid = getActiveUid();
     const newLoc: MoneyLocation = {
       ...loc,
       id: 'loc-' + Date.now(),
+      userId: uid,
     };
     const updated = [...locations, newLoc];
     setLocations(updated);
     localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(updated));
-    await saveLocationsToFirestore(updated);
+    if (uid) await saveLocationsToFirestore(uid, updated);
     showToast(`Location "${loc.name}" saved to Cloud`);
   };
 
   const updateLocation = async (id: string, partial: Partial<MoneyLocation>) => {
+    const uid = getActiveUid();
     const updated = locations.map((l) => (l.id === id ? { ...l, ...partial } : l));
     setLocations(updated);
     localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(updated));
-    await saveLocationsToFirestore(updated);
+    if (uid) await saveLocationsToFirestore(uid, updated);
     showToast('Location updated in Cloud');
   };
 
   const deleteLocation = async (id: string) => {
+    const uid = getActiveUid();
     const updated = locations.filter((l) => l.id !== id);
     setLocations(updated);
     localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(updated));
-    await saveLocationsToFirestore(updated);
+    if (uid) await saveLocationsToFirestore(uid, updated);
     showToast('Location removed from Cloud');
   };
 
   const reorderLocations = async (newLocations: MoneyLocation[]) => {
+    const uid = getActiveUid();
     setLocations(newLocations);
     localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(newLocations));
-    await saveLocationsToFirestore(newLocations);
+    if (uid) await saveLocationsToFirestore(uid, newLocations);
     showToast('Locations reordered & saved');
   };
 
   const addIncomeSource = async (src: Omit<IncomeSource, 'id'>) => {
+    const uid = getActiveUid();
     const newSrc: IncomeSource = {
       ...src,
       id: 'inc-' + Date.now(),
+      userId: uid,
     };
     const updated = [...incomeSources, newSrc];
     setIncomeSources(updated);
     localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(updated));
-    await saveIncomeSourcesToFirestore(updated);
+    if (uid) await saveIncomeSourcesToFirestore(uid, updated);
     showToast(`Income source "${src.name}" saved to Cloud`);
   };
 
   const updateIncomeSource = async (id: string, partial: Partial<IncomeSource>) => {
+    const uid = getActiveUid();
     const updated = incomeSources.map((s) => (s.id === id ? { ...s, ...partial } : s));
     setIncomeSources(updated);
     localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(updated));
-    await saveIncomeSourcesToFirestore(updated);
+    if (uid) await saveIncomeSourcesToFirestore(uid, updated);
     showToast('Income source updated in Cloud');
   };
 
   const deleteIncomeSource = async (id: string) => {
+    const uid = getActiveUid();
     const updated = incomeSources.filter((s) => s.id !== id);
     setIncomeSources(updated);
     localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(updated));
-    await saveIncomeSourcesToFirestore(updated);
+    if (uid) await saveIncomeSourcesToFirestore(uid, updated);
     showToast('Income source removed from Cloud');
   };
 
   const reorderIncomeSources = async (newSources: IncomeSource[]) => {
+    const uid = getActiveUid();
     setIncomeSources(newSources);
     localStorage.setItem(STORAGE_KEYS.INCOME_SOURCES, JSON.stringify(newSources));
-    await saveIncomeSourcesToFirestore(newSources);
+    if (uid) await saveIncomeSourcesToFirestore(uid, newSources);
     showToast('Income sources reordered & saved');
   };
 
@@ -749,6 +766,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) => {
     const now = new Date();
     const formattedTime = time || now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const uid = getActiveUid();
 
     const newTx: IncomeTransaction = {
       id: 'tx-inc-' + Date.now(),
@@ -760,11 +778,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       time: formattedTime,
       timestamp: Date.now(),
       notes: notes?.trim() || undefined,
+      userId: uid,
     };
 
     setTransactions((prev) => [newTx, ...prev]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([newTx, ...transactions]));
-    await saveTransactionToFirestore(newTx);
+    await saveTransactionToFirestore(newTx, uid);
     showToast(`+${formatMoney(amount)} Income saved to Cloud`);
   };
 
@@ -791,6 +810,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) => {
     const now = new Date();
     const formattedTime = time || now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const uid = getActiveUid();
 
     const newTx: ExpenseTransaction = {
       id: 'tx-exp-' + Date.now(),
@@ -805,11 +825,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: Date.now(),
       notes: notes?.trim() || undefined,
       isRecurring,
+      userId: uid,
     };
 
     setTransactions((prev) => [newTx, ...prev]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([newTx, ...transactions]));
-    await saveTransactionToFirestore(newTx);
+    await saveTransactionToFirestore(newTx, uid);
     showToast(`-${formatMoney(amount)} Expense saved [${needWant.toUpperCase()}]`);
   };
 
@@ -834,6 +855,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) => {
     const now = new Date();
     const formattedTime = time || now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const uid = getActiveUid();
 
     const newTx: TransferTransaction = {
       id: 'tx-tr-' + Date.now(),
@@ -847,22 +869,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       time: formattedTime,
       timestamp: Date.now(),
       notes: notes?.trim() || undefined,
+      userId: uid,
     };
 
     setTransactions((prev) => [newTx, ...prev]);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([newTx, ...transactions]));
-    await saveTransactionToFirestore(newTx);
+    await saveTransactionToFirestore(newTx, uid);
     showToast(`Transfer of ${formatMoney(amount)} saved to Cloud`);
   };
 
   const updateTransaction = async (id: string, updated: Partial<Transaction>) => {
-    const updatedList = transactions.map((t) => (t.id === id ? ({ ...t, ...updated } as Transaction) : t));
+    const uid = getActiveUid();
+    const updatedList = transactions.map((t) => (t.id === id ? ({ ...t, ...updated, userId: uid || t.userId } as Transaction) : t));
     setTransactions(updatedList);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
 
     const targetTx = updatedList.find((t) => t.id === id);
     if (targetTx) {
-      await saveTransactionToFirestore(targetTx);
+      await saveTransactionToFirestore(targetTx, uid);
     }
     if (selectedTransaction?.id === id) {
       setSelectedTransaction((prev) => (prev ? ({ ...prev, ...updated } as Transaction) : null));
@@ -871,10 +895,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteTransaction = async (id: string) => {
+    const uid = getActiveUid();
     const updatedList = transactions.filter((t) => t.id !== id);
     setTransactions(updatedList);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
-    await deleteTransactionFromFirestore(id);
+    await deleteTransactionFromFirestore(id, uid);
     if (selectedTransaction?.id === id) {
       setSelectedTransaction(null);
     }
@@ -883,52 +908,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Profile & Settings Mutators
   const updateProfile = async (partial: Partial<UserProfile>) => {
-    const updated = { ...profile, ...partial };
+    const uid = getActiveUid();
+    const updated = { ...profile, ...partial, userId: uid };
     setProfile(updated);
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
-    const activeUid = currentUser?.uid || auth.currentUser?.uid;
-    if (activeUid) {
-      await saveProfileToFirestore(activeUid, updated);
+    if (uid) {
+      await saveProfileToFirestore(uid, updated);
     }
     showToast('Profile saved to Cloud');
   };
 
   const updateSettings = async (partial: Partial<AppSettings>) => {
-    const updated = { ...settings, ...partial };
+    const uid = getActiveUid();
+    const updated = { ...settings, ...partial, userId: uid };
     setSettings(updated);
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
-    await saveSettingsToFirestore(updated);
+    if (uid) {
+      await saveSettingsToFirestore(uid, updated);
+    }
     showToast('Settings saved to Cloud');
   };
 
   const updateBudget = async (category: string, limit: number) => {
-    const updated = budgets.map((b) => (b.category === category ? { ...b, limit } : b));
+    const uid = getActiveUid();
+    const updated = budgets.map((b) => (b.category === category ? { ...b, limit, userId: uid } : b));
     setBudgets(updated);
     localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(updated));
-    await saveBudgetsToFirestore(updated);
+    if (uid) {
+      await saveBudgetsToFirestore(uid, updated);
+    }
     showToast('Budget updated in Cloud');
   };
 
   const updateProfileAvatar = async (base64Image: string) => {
-    const updated: UserProfile = { ...profile, avatarUrl: base64Image };
+    const uid = getActiveUid();
+    const updated: UserProfile = { ...profile, avatarUrl: base64Image, userId: uid };
     setProfile(updated);
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
-    const activeUid = currentUser?.uid || auth.currentUser?.uid;
-    if (activeUid) {
-      await saveProfileToFirestore(activeUid, updated);
+    if (uid) {
+      await saveProfileToFirestore(uid, updated);
     }
     showToast('Profile photo updated & saved');
   };
 
   const setPinLock = async (enabled: boolean, pin?: string) => {
+    const uid = getActiveUid();
     const updated: AppSettings = {
       ...settings,
       isPinLockEnabled: enabled,
       pinCode: pin || settings.pinCode || '1234',
+      userId: uid,
     };
     setSettings(updated);
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
-    await saveSettingsToFirestore(updated);
+    if (uid) {
+      await saveSettingsToFirestore(uid, updated);
+    }
     if (enabled) {
       setIsAppUnlocked(true);
       showToast('4-Digit PIN Lock Enabled');
