@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Transaction, ExpenseTransaction, IncomeTransaction, TransferTransaction } from '../../types';
+import { SmartAlertsWidget } from './SmartAlertsWidget';
+import { exportPDF, exportExcel } from '../../utils/exportUtils';
 
 export const DashboardView: React.FC = () => {
   const {
@@ -18,6 +20,9 @@ export const DashboardView: React.FC = () => {
     spendingByCategory,
     transactions,
     formatMoney,
+    getCurrencySymbol,
+    profile,
+    showToast,
     setSelectedTransaction,
     setIsAddModalOpen,
   } = useApp();
@@ -25,6 +30,7 @@ export const DashboardView: React.FC = () => {
   const [viewAllOpen, setViewAllOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isExporting, setIsExporting] = useState<'pdf' | 'excel' | null>(null);
 
   // Filter Transactions
   const filteredTransactions = transactions.filter((t) => {
@@ -56,6 +62,61 @@ export const DashboardView: React.FC = () => {
   });
 
   const recentList = viewAllOpen ? filteredTransactions : filteredTransactions.slice(0, 6);
+
+  const filteredIncome = filteredTransactions
+    .filter((t) => t.type === 'income')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const filteredExpenses = filteredTransactions
+    .filter((t) => t.type === 'expense')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const handleExportPDF = () => {
+    if (filteredTransactions.length === 0) {
+      showToast('No transactions found to export');
+      return;
+    }
+    setIsExporting('pdf');
+    try {
+      exportPDF(
+        filteredTransactions,
+        getCurrencySymbol(),
+        profile.name || 'Kanakku User',
+        filteredIncome,
+        filteredExpenses,
+        'Transactions Statement'
+      );
+      showToast('Bank Statement PDF exported successfully!');
+    } catch (err) {
+      console.error('PDF export error:', err);
+      showToast('Failed to export PDF');
+    } finally {
+      setTimeout(() => setIsExporting(null), 600);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (filteredTransactions.length === 0) {
+      showToast('No transactions found to export');
+      return;
+    }
+    setIsExporting('excel');
+    try {
+      exportExcel(
+        filteredTransactions,
+        getCurrencySymbol(),
+        profile.name || 'Kanakku User',
+        filteredIncome,
+        filteredExpenses
+      );
+      showToast('Excel statement (.xlsx) exported successfully!');
+    } catch (err) {
+      console.error('Excel export error:', err);
+      showToast('Failed to export Excel');
+    } finally {
+      setTimeout(() => setIsExporting(null), 600);
+    }
+  };
 
   // Pie chart calculation helper
   const renderPieChartSlices = () => {
@@ -254,7 +315,10 @@ export const DashboardView: React.FC = () => {
         </div>
       </section>
 
-      {/* SECTION 3: VISUAL CHARTS */}
+      {/* SECTION 3: SMART ALERTS */}
+      <SmartAlertsWidget />
+
+      {/* SECTION 4: VISUAL CHARTS */}
       <section className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Pie Chart: Spending by Category */}
         <div className="md:col-span-6 bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-3xl p-6 shadow-sm flex flex-col justify-between min-h-[360px]">
@@ -398,11 +462,44 @@ export const DashboardView: React.FC = () => {
               Activity Stream
             </h2>
             <span className="px-2 py-0.5 rounded-full bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] text-black dark:text-white text-xs font-black">
-              {transactions.length}
+              {filteredTransactions.length}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Export as PDF */}
+            <button
+              type="button"
+              onClick={handleExportPDF}
+              disabled={isExporting !== null || filteredTransactions.length === 0}
+              title="Export filtered transactions as a formal Bank Statement PDF"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-xs font-black transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+            >
+              {isExporting === 'pdf' ? (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <span className="material-symbols-outlined text-sm font-black">picture_as_pdf</span>
+              )}
+              <span>Export as PDF</span>
+            </button>
+
+            {/* Export as Excel */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={isExporting !== null || filteredTransactions.length === 0}
+              title="Export filtered transactions into an Excel (.xlsx) spreadsheet"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+            >
+              {isExporting === 'excel' ? (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <span className="material-symbols-outlined text-sm font-black">table_chart</span>
+              )}
+              <span>Export as Excel</span>
+            </button>
+
+            {/* See All */}
             <button
               type="button"
               onClick={() => setViewAllOpen(!viewAllOpen)}

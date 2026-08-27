@@ -1,7 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ExpenseTransaction, IncomeTransaction } from '../../types';
 import { exportPDF, exportExcel } from '../../utils/exportUtils';
+import { HealthScoreWidget } from './HealthScoreWidget';
+import { AiBudgetCoach } from './AiBudgetCoach';
 
 export const InsightsView: React.FC = () => {
   const {
@@ -13,6 +15,7 @@ export const InsightsView: React.FC = () => {
     getCurrencySymbol,
     setIsAddModalOpen,
     profile,
+    showToast,
   } = useApp();
 
   const [timeframe, setTimeframe] = useState<'Week' | 'Month' | 'Year'>('Month');
@@ -25,18 +28,34 @@ export const InsightsView: React.FC = () => {
 
   // ─── Export Handlers ──────────────────────────────────────────────────────
   const handleExportPDF = async () => {
+    if (transactions.length === 0) {
+      showToast('No transactions found to export');
+      return;
+    }
     setIsExporting('pdf');
     try {
       exportPDF(transactions, currencySymbol, profile.name || 'Kanakku User', totalReceived, totalExpenses);
+      showToast('Bank Statement PDF exported successfully!');
+    } catch (err) {
+      console.error('PDF export error:', err);
+      showToast('Failed to export PDF');
     } finally {
       setTimeout(() => setIsExporting(null), 600);
     }
   };
 
   const handleExportExcel = async () => {
+    if (transactions.length === 0) {
+      showToast('No transactions found to export');
+      return;
+    }
     setIsExporting('excel');
     try {
       exportExcel(transactions, currencySymbol, profile.name || 'Kanakku User', totalReceived, totalExpenses);
+      showToast('Excel statement (.xlsx) exported successfully!');
+    } catch (err) {
+      console.error('Excel export error:', err);
+      showToast('Failed to export Excel');
     } finally {
       setTimeout(() => setIsExporting(null), 600);
     }
@@ -137,6 +156,9 @@ export const InsightsView: React.FC = () => {
   return (
     <main className="flex-grow w-full max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8 flex flex-col gap-6 md:gap-8 pb-28 md:pb-12 animate-fadeIn text-black dark:text-white">
 
+      {/* ─── Financial Health Score ────────────────────────────────────────── */}
+      <HealthScoreWidget />
+
       {/* ─── Header + Export Buttons ───────────────────────────────────────── */}
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
@@ -172,14 +194,15 @@ export const InsightsView: React.FC = () => {
             type="button"
             onClick={handleExportPDF}
             disabled={isExporting !== null}
+            title="Export as a formal Bank Statement PDF"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500 text-white text-xs font-black hover:bg-rose-600 active:scale-95 transition-all shadow-sm disabled:opacity-60 cursor-pointer"
           >
             {isExporting === 'pdf' ? (
               <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <span className="material-symbols-outlined text-sm">picture_as_pdf</span>
+              <span className="material-symbols-outlined text-sm font-black">picture_as_pdf</span>
             )}
-            PDF
+            <span>Export as PDF</span>
           </button>
 
           {/* Export Excel */}
@@ -187,14 +210,15 @@ export const InsightsView: React.FC = () => {
             type="button"
             onClick={handleExportExcel}
             disabled={isExporting !== null}
+            title="Export filtered transactions into an Excel (.xlsx) spreadsheet"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black hover:bg-emerald-700 active:scale-95 transition-all shadow-sm disabled:opacity-60 cursor-pointer"
           >
             {isExporting === 'excel' ? (
               <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <span className="material-symbols-outlined text-sm">table_chart</span>
+              <span className="material-symbols-outlined text-sm font-black">table_chart</span>
             )}
-            Excel
+            <span>Export as Excel</span>
           </button>
         </div>
       </section>
@@ -496,6 +520,10 @@ export const InsightsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ─── AI Budget Coach ───────────────────────────────────────────────── */}
+      <AiBudgetCoach />
+
     </main>
   );
 };
