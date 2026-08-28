@@ -26,16 +26,63 @@ export const InsightsView: React.FC = () => {
   const expenseTransactions = transactions.filter((t): t is ExpenseTransaction => t.type === 'expense');
   const incomeTransactions = transactions.filter((t): t is IncomeTransaction => t.type === 'income');
 
+  // ─── Timeframe-filtered transactions for export ────────────────────────────
+  const filteredForExport = (() => {
+    const now = new Date();
+    if (timeframe === 'Week') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(now.getDate() - 7);
+      return transactions.filter((t) => t.timestamp >= weekAgo.getTime());
+    } else if (timeframe === 'Month') {
+      return transactions.filter((t) => {
+        const d = new Date(t.timestamp || Date.now());
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      });
+    } else if (timeframe === 'Year') {
+      return transactions.filter((t) => {
+        const d = new Date(t.timestamp || Date.now());
+        return d.getFullYear() === now.getFullYear();
+      });
+    }
+    return transactions;
+  })();
+
+  // Human-readable period label for the PDF/Excel
+  const getPeriodLabel = () => {
+    const now = new Date();
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'];
+    if (timeframe === 'Week') {
+      const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+      return `${weekAgo.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    } else if (timeframe === 'Month') {
+      return `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+    } else {
+      return `Year ${now.getFullYear()}`;
+    }
+  };
+
   // ─── Export Handlers ──────────────────────────────────────────────────────
   const handleExportPDF = async () => {
-    if (transactions.length === 0) {
-      showToast('No transactions found to export');
+    if (filteredForExport.length === 0) {
+      showToast(`No transactions found for the selected ${timeframe} period`);
       return;
     }
     setIsExporting('pdf');
     try {
-      exportPDF(transactions, currencySymbol, profile.name || 'Kanakku User', totalReceived, totalExpenses);
-      showToast('Bank Statement PDF exported successfully!');
+      const periodLabel = getPeriodLabel();
+      const filteredIncome = filteredForExport.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const filteredExpenses = filteredForExport.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      exportPDF(
+        filteredForExport,
+        currencySymbol,
+        profile.name || 'Kanakku User',
+        filteredIncome,
+        filteredExpenses,
+        `${timeframe}ly Financial Statement`,
+        periodLabel
+      );
+      showToast(`Bank Statement PDF (${timeframe}) exported successfully!`);
     } catch (err) {
       console.error('PDF export error:', err);
       showToast('Failed to export PDF');
@@ -45,14 +92,24 @@ export const InsightsView: React.FC = () => {
   };
 
   const handleExportExcel = async () => {
-    if (transactions.length === 0) {
-      showToast('No transactions found to export');
+    if (filteredForExport.length === 0) {
+      showToast(`No transactions found for the selected ${timeframe} period`);
       return;
     }
     setIsExporting('excel');
     try {
-      exportExcel(transactions, currencySymbol, profile.name || 'Kanakku User', totalReceived, totalExpenses);
-      showToast('Excel statement (.xlsx) exported successfully!');
+      const periodLabel = getPeriodLabel();
+      const filteredIncome = filteredForExport.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const filteredExpenses = filteredForExport.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      exportExcel(
+        filteredForExport,
+        currencySymbol,
+        profile.name || 'Kanakku User',
+        filteredIncome,
+        filteredExpenses,
+        periodLabel
+      );
+      showToast(`Excel statement (.xlsx) for ${timeframe} exported successfully!`);
     } catch (err) {
       console.error('Excel export error:', err);
       showToast('Failed to export Excel');

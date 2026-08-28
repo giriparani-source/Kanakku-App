@@ -8,6 +8,7 @@ import { useApp } from '../../context/AppContext';
 import { SmartAlertsWidget } from './SmartAlertsWidget';
 import { FinancialOverviewCards } from './dashboard/FinancialOverviewCards';
 import { TransactionList } from './dashboard/TransactionList';
+import { ProChartsSection } from './dashboard/ProChartsSection';
 
 export const DashboardView: React.FC = () => {
   const {
@@ -285,7 +286,19 @@ export const DashboardView: React.FC = () => {
         </div>
       </section>
 
-      {/* SECTION 5: RECENT ACTIVITY STREAM */}
+      {/* SECTION 5: PRO ANALYTICS — Monthly Trend + Income vs Expense Charts */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <h2 className="text-sm font-black uppercase tracking-wider text-black dark:text-white flex items-center gap-2">
+            <span className="material-symbols-outlined text-base">auto_graph</span>
+            <span>Pro Analytics</span>
+          </h2>
+          <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-blue-500 text-white text-[9px] font-black">LIVE</span>
+        </div>
+        <ProChartsSection transactions={transactions} formatMoney={formatMoney} />
+      </section>
+
+      {/* SECTION 6: RECENT ACTIVITY STREAM */}
       <TransactionList
         transactions={transactions}
         formatMoney={formatMoney}

@@ -106,8 +106,13 @@ export const exportPDF = (
   userName: string,
   totalIncome?: number,
   totalExpenses?: number,
-  statementTitle: string = 'Account Financial Statement'
+  statementTitle: string = 'Account Financial Statement',
+  statementPeriod?: string
 ): void => {
+  if (!transactions || transactions.length === 0) {
+    console.warn('[exportPDF] No transactions to export — aborting.');
+    return;
+  }
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const rows = buildExportRows(transactions, currencySymbol, true);
   const pdfSym = getSafePdfCurrencySymbol(currencySymbol);
@@ -153,6 +158,15 @@ export const exportPDF = (
   doc.setFontSize(8.5);
   doc.setTextColor(148, 163, 184); // Slate 400
   doc.text('OFFICIAL BANK STATEMENT & TRANSACTION LEDGER', 14, 22);
+
+  // Period label (if provided by caller)
+  if (statementPeriod) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 200, 140); // Muted green accent
+    const periodText = `Statement Period: ${statementPeriod}`;
+    doc.text(periodText, pageW - doc.getTextWidth(periodText) - 14, 22);
+  }
 
   // Account Holder & Metadata Left
   doc.setFont('helvetica', 'normal');
@@ -344,8 +358,13 @@ export const exportExcel = (
   currencySymbol: string,
   userName: string,
   totalIncome?: number,
-  totalExpenses?: number
+  totalExpenses?: number,
+  statementPeriod?: string
 ): void => {
+  if (!transactions || transactions.length === 0) {
+    console.warn('[exportExcel] No transactions to export — aborting.');
+    return;
+  }
   const rows = buildExportRows(transactions, currencySymbol, false);
   const now = new Date();
 
@@ -365,6 +384,7 @@ export const exportExcel = (
     ['Generated Automatically via Kanakku Money Manager'],
     [],
     ['Account Holder:', userName || 'Primary User'],
+    ['Statement Period:', statementPeriod || 'All Time'],
     ['Statement Date:', now.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })],
     ['Statement Time:', now.toLocaleTimeString('en-IN')],
     ['Total Records:', transactions.length],
