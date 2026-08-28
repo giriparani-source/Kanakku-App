@@ -42,6 +42,7 @@ import {
   subscribeToIncomeSources,
   subscribeToBudgets,
   subscribeToTransactions,
+  getPaginatedTransactions,
   saveProfileToFirestore,
   saveSettingsToFirestore,
   saveCategoriesToFirestore,
@@ -174,6 +175,11 @@ interface AppContextType {
   updateTransaction: (id: string, updatedTx: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
 
+  // Pagination for Transactions List
+  hasMoreTransactions: boolean;
+  isLoadingMoreTransactions: boolean;
+  loadMoreTransactions: () => Promise<void>;
+
   // Computed Real-Time Balances & Metrics
   locationBalances: Record<string, number>;
   getLocationBalance: (locationId: string) => number;
@@ -301,6 +307,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
     return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
   });
+
+  // Pagination State for Transactions (UID-isolated)
+  const [lastVisibleTransactionDoc, setLastVisibleTransactionDoc] = useState<any | null>(null);
+  const [hasMoreTransactions, setHasMoreTransactions] = useState<boolean>(true);
+  const [isLoadingMoreTransactions, setIsLoadingMoreTransactions] = useState<boolean>(false);
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
@@ -466,6 +477,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.clear();
       setProfile(INITIAL_PROFILE);
       setTransactions([]);
+      setLastVisibleTransactionDoc(null);
+      setHasMoreTransactions(true);
       setActiveTab('home');
       showToast('Logged out successfully');
     } catch (err) {
@@ -904,6 +917,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSelectedTransaction(null);
     }
     showToast('Transaction removed from Cloud');
+  };
+
+  /**
+   * Load the next page of transactions from Firestore using startAfter(lastVisibleDoc)
+   * Appends new transactions to the existing list and updates lastVisibleDoc.
+   */
+  const loadMoreTransactions = async () => {
+    const uid = getActiveUid();
+    if (!uid || isLoadingMoreTransactions || !hasMoreTransactions) return;
+
+    setIsLoadingMoreTransactions(true);
+    try {
+      const result = await getPaginatedTransactions(uid, lastVisibleTransactionDoc, 20);
+      if (result.transactions.length > 0) {
+        setTransactions((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const newItems = result.transactions.filter((t) => !existingIds.has(t.id));
+          const combined = [...prev, ...newItems];
+          localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(combined));
+          return combined;
+        });
+        setLastVisibleTransactionDoc(result.lastVisibleDoc);
+        setHasMoreTransactions(result.hasMore);
+      } else {
+        setHasMoreTransactions(false);
+      }
+    } catch (err) {
+      console.error('❌ Error loading more transactions:', err);
+    } finally {
+      setIsLoadingMoreTransactions(false);
+    }
   };
 
   // Profile & Settings Mutators
@@ -1356,6 +1400,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addTransfer,
         updateTransaction,
         deleteTransaction,
+        hasMoreTransactions,
+        isLoadingMoreTransactions,
+        loadMoreTransactions,
 
         locationBalances,
         getLocationBalance,

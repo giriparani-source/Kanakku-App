@@ -16,6 +16,9 @@ interface TransactionListProps {
   setSelectedTransaction: (tx: Transaction) => void;
   setIsAddModalOpen: (open: boolean) => void;
   getLocationName: (id?: string) => string;
+  loadMoreTransactions?: () => Promise<void>;
+  hasMoreTransactions?: boolean;
+  isLoadingMoreTransactions?: boolean;
 }
 
 /**
@@ -32,6 +35,9 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   setSelectedTransaction,
   setIsAddModalOpen,
   getLocationName,
+  loadMoreTransactions,
+  hasMoreTransactions = true,
+  isLoadingMoreTransactions = false,
 }) => {
   const [viewAllOpen, setViewAllOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
@@ -324,6 +330,48 @@ export const TransactionList: React.FC<TransactionListProps> = ({
               </div>
             );
           })
+        )}
+
+        {/* Load More Pagination Section */}
+        {filteredTransactions.length > 0 && hasMoreTransactions && (
+          <div className="p-4 flex flex-col items-center justify-center gap-2 bg-white/60 dark:bg-[#141B2A]/60 border-t border-neutral-200 dark:border-[#243048]">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!viewAllOpen) setViewAllOpen(true);
+                if (loadMoreTransactions) {
+                  await loadMoreTransactions();
+                }
+              }}
+              disabled={isLoadingMoreTransactions}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-2xl bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 text-xs md:text-sm font-black transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {isLoadingMoreTransactions ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <span>Loading more transactions...</span>
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-base font-black">expand_more</span>
+                  <span>Load More Transactions</span>
+                </>
+              )}
+            </button>
+            <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500">
+              Showing {recentList.length} of {filteredTransactions.length} loaded
+            </span>
+          </div>
+        )}
+
+        {/* All Loaded Indicator */}
+        {!hasMoreTransactions && filteredTransactions.length > 6 && (
+          <div className="py-3 px-4 text-center bg-white/40 dark:bg-[#141B2A]/40 border-t border-neutral-200 dark:border-[#243048]">
+            <span className="text-xs font-bold text-neutral-400 dark:text-neutral-500 flex items-center justify-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-emerald-500 font-black">check_circle</span>
+              All {filteredTransactions.length} transactions loaded
+            </span>
+          </div>
         )}
       </div>
     </section>

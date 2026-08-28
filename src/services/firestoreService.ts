@@ -8,6 +8,11 @@ import {
   onSnapshot,
   query,
   where,
+  orderBy,
+  limit,
+  startAfter,
+  DocumentSnapshot,
+  QueryDocumentSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
@@ -296,6 +301,86 @@ export const subscribeToTransactions = (
       console.warn('Firestore transactions subscription warning:', err);
     }
   );
+};
+
+export interface PaginatedTransactionsResult {
+  transactions: Transaction[];
+  lastVisibleDoc: QueryDocumentSnapshot | DocumentSnapshot | null;
+  hasMore: boolean;
+}
+
+/**
+ * Fetches chunks of transaction data for pagination.
+ * Uses Firestore query with strict UID isolation, orderBy('date', 'desc'), limit(), and startAfter().
+ * Returns both the fetched transactions and the new lastVisible document snapshot.
+ */
+export const getPaginatedTransactions = async (
+  userId: string,
+  lastVisibleDoc: QueryDocumentSnapshot | DocumentSnapshot | null = null,
+  limitCount: number = 20
+): Promise<PaginatedTransactionsResult> => {
+  if (!userId) {
+    return { transactions: [], lastVisibleDoc: null, hasMore: false };
+  }
+
+  try {
+    let q;
+    if (lastVisibleDoc) {
+      q = query(
+        TRANSACTIONS_COLLECTION,
+        where('userId', '==', userId),
+        orderBy('date', 'desc'),
+        startAfter(lastVisibleDoc),
+        limit(limitCount)
+      );
+    } else {
+      q = query(
+        TRANSACTIONS_COLLECTION,
+        where('userId', '==', userId),
+        orderBy('date', 'desc'),
+        limit(limitCount)
+      );
+    }
+
+    const snapshot = await getDocs(q);
+    const transactions: Transaction[] = [];
+    snapshot.forEach((docSnap) => {
+      transactions.push(docSnap.data() as Transaction);
+    });
+
+    const newLastVisible =
+      snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+    const hasMore = snapshot.docs.length >= limitCount;
+
+    return {
+      transactions,
+      lastVisibleDoc: newLastVisible,
+      hasMore,
+    };
+  } catch (err) {
+    console.warn('⚠️ [Firestore] Pagination query with orderBy failed, attempting fallback query:', err);
+    try {
+      const fallbackQ = query(
+        TRANSACTIONS_COLLECTION,
+        where('userId', '==', userId),
+        limit(limitCount)
+      );
+      const snapshot = await getDocs(fallbackQ);
+      const transactions: Transaction[] = [];
+      snapshot.forEach((docSnap) => {
+        transactions.push(docSnap.data() as Transaction);
+      });
+      transactions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return {
+        transactions,
+        lastVisibleDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null,
+        hasMore: snapshot.docs.length >= limitCount,
+      };
+    } catch (fallbackErr) {
+      console.error('❌ Error in fallback paginated transactions fetch:', fallbackErr);
+      return { transactions: [], lastVisibleDoc: null, hasMore: false };
+    }
+  }
 };
 
 // ==========================================

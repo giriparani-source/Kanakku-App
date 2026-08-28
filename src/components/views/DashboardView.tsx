@@ -31,6 +31,9 @@ export const DashboardView: React.FC = () => {
     showToast,
     setSelectedTransaction,
     setIsAddModalOpen,
+    loadMoreTransactions,
+    hasMoreTransactions,
+    isLoadingMoreTransactions,
   } = useApp();
 
   // Pie chart calculation helper
@@ -308,6 +311,9 @@ export const DashboardView: React.FC = () => {
         setSelectedTransaction={setSelectedTransaction}
         setIsAddModalOpen={setIsAddModalOpen}
         getLocationName={getLocationName}
+        loadMoreTransactions={loadMoreTransactions}
+        hasMoreTransactions={hasMoreTransactions}
+        isLoadingMoreTransactions={isLoadingMoreTransactions}
       />
     </main>
   );
