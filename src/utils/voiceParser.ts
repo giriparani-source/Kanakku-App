@@ -153,51 +153,80 @@ Your task is to parse spoken voice transcripts—which frequently blend English,
 ### CRITICAL RULES & INSTRUCTIONS:
 
 1. **TRANSACTION TYPE DISAMBIGUATION (Expense vs Income vs Transfer)**:
-   - **EXPENSE**:
-     - Words indicating spending/payment: "kuduthen", "kuduthuten", "koduthen", "selavu", "vaanginen", "vaangiten", "paathen", "sapten", "saptom", "kudichen", "potten", "bill kattinen", "recharge pannen", "ticket eduthen", "spent", "paid", "bought", "purchased", "ordered", "ate".
-     - **CRITICAL EDGE CASE**: If someone says "maid ku salary kuduthen", "driver ku sambalam kuduthen", or "worker ku cash kuduthen" -> This is an **EXPENSE** (Category: "Bills & Utilities" or "Housing & Rent"), NOT an Income! The speaker is paying out someone else's salary.
-     - "veetu vaadagai kuduthen" / "room rent paid" -> **EXPENSE** (Housing & Rent).
-     - "friend ku kadan kuduthen" -> **EXPENSE** (or Transfer/Lending).
-   - **INCOME**:
-     - Words indicating earnings/receipts: "vanthuchu", "vanthurukku", "kedaichathu", "potanga", "anupunanga", "credited", "earned", "received", "got", "salary vanthuchu", "salary potanga", "bonus vanthuchu", "dividend", "interest", "cashback", "refund", "stipend", "pocket money vanthuchu".
-     - "tenant vaadagai kuduthan" / "rent vanthuchu" -> **INCOME** (Source: "Rental Income").
-     - "office la irunthu salary potanga" -> **INCOME** (Source: "Salary / Wages").
-     - "friend kadan thirumba kuduthan" -> **INCOME** (Source: "Other Income").
-   - **TRANSFER**:
-     - Words indicating shifting money between the user's own accounts/wallets: "maathinen", "maathiten", "shift pannen", "move pannen", "transfer pannen", "anupinen", "anupiten", "deposit", "withdrew", "atm la eduthen", "sent to savings".
-     - "bank la irunthu cash eduthen" -> **TRANSFER** (transferType: "withdrawal", from: "Bank", to: "Cash").
-     - "cash bank la potten" -> **TRANSFER** (transferType: "deposit", from: "Cash", to: "Bank").
-     - "gpay la irunthu savings ku 2000 maathinen" -> **TRANSFER** (transferType: "transfer", from: "Wallet", to: "Savings").
+
+   **EXPENSE** — The user is paying or spending money OUT of their pocket:
+   - Spending verbs: "kuduthen", "kuduthuten", "koduthen", "selavu panninen", "vaanginen", "vaangiten", "paathen", "sapten", "saptom", "kudichen", "potten", "kattinen", "bill kattinen", "recharge pannen", "ticket eduthen", "spent", "paid", "bought", "purchased", "ordered", "ate", "swiped", "deducted".
+   - Tanglish spending slang: "paarakooten" (slang for ordered impulsively), "vaashtil" (wasteful spend), "thookinen" (picked up/bought), "vaanginten".
+   - **CRITICAL EDGE CASES — These are EXPENSES, NOT Income:**
+     a. "maid ku salary kuduthen" / "driver ku sambalam kuduthen" / "worker ku cash kuduthen" → EXPENSE (Category: "Bills & Utilities"). Speaker is PAYING someone else's salary — this is outflow!
+     b. "veetu vaadagai kuduthen" / "room rent paid" / "vaadagai kattinen" → EXPENSE (Category: "Housing & Rent").
+     c. "friend ku kadan kuduthen" / "friend ku 500 udane kuduthen" → EXPENSE (or Transfer/Lending). Speaker lent money = outflow.
+     d. "EB bill potten" / "current bill kattinen" / "wifi bill recharge panninen" → EXPENSE (Category: "Bills & Utilities").
+     e. "doctor fees kuduthen" / "medicine vaanginen" → EXPENSE (Category: "Health & Medical").
+
+   **INCOME** — Money is coming INTO the user's accounts:
+   - Receiving verbs: "vanthuchu", "vanthurukku", "vanthiruchu", "kedaichathu", "kedaikuthu", "potanga", "anupunanga", "credited", "earned", "received", "got", "credited aachu", "account la vanthuchu", "kittuthu".
+   - Tanglish income slang: "panam vanthuchu", "kaashu kedaichathu", "account la pochu", "thirumba vanthuchu" (came back/refund).
+   - **CRITICAL EDGE CASES — These are INCOME:**
+     a. "salary vanthuchu" / "salary potanga" / "office salary credited aachu" → INCOME (Source: "Salary / Wages").
+     b. "bonus vanthuchu" / "incentive vanthuchu" → INCOME (Source: "Salary / Wages").
+     c. "tenant vaadagai kuduthan" / "flat rent vanthuchu" / "room rent kedaichathu" → INCOME (Source: "Rental Income"). Tenant paying the user = inflow!
+     d. "friend kadan thirumba kuduthan" / "panam thirumba vanthuchu" → INCOME (Source: "Other Income"). The user is receiving their lent money back.
+     e. "cashback vanthuchu" / "refund vanthuchu" / "amazon refund account la pochu" → INCOME (Source: "Other Income").
+     f. "freelance project payment vanthuchu" / "client panam anupinaan" → INCOME (Source: "Freelance / Consulting").
+     g. "dividend vanthuchu" / "interest credited" / "fd matured" → INCOME (Source: "Investments").
+     h. "pocket money kedaichathu" / "appa panam kuduthaar" → INCOME (Source: "Other Income").
+
+   **TRANSFER** — Moving money BETWEEN the user's OWN accounts/wallets (no net change in total wealth):
+   - Transfer verbs: "maathinen", "maathiten", "shift pannen", "move pannen", "transfer pannen", "anupinen", "anupiten", "deposit pannen", "withdrew", "eduthen" (context: from own ATM).
+   - **CRITICAL EDGE CASES — These are TRANSFERS:**
+     a. "bank la irunthu cash eduthen atm la" → TRANSFER (transferType: "withdrawal", from: "Bank Account", to: "Cash").
+     b. "cash bank la potten" / "cash deposit pannen" → TRANSFER (transferType: "deposit", from: "Cash", to: "Bank Account").
+     c. "gpay la irunthu savings ku 2000 maathinen" → TRANSFER (transferType: "transfer", from: "Wallet", to: "Savings Account").
+     d. "phonepe la irunthu bank ku money move pannen" → TRANSFER (from: "Wallet", to: "Bank Account").
+     e. "atm la 3000 eduthen" → TRANSFER (withdrawal, from: "Bank Account", to: "Cash"). ATM withdrawal is always a transfer.
 
 2. **NEED VS WANT DETERMINATION**:
-   - **NEED** (Essential / Mandatory):
-     - Triggers: "thevai", "theva", "mukkiyam", "avasiyam", "essential", "urgent", "kandippa", "bills", "rent", "groceries", "maligai", "medicines", "marunthu", "fuel", "petrol", "school fees".
-     - General essentials: Basic food, utilities, rent, healthcare, commute fuel.
-   - **WANT** (Discretionary / Lifestyle / Luxury):
-     - Triggers: "want", "aasa", "aasai", "treat", "waste", "extra", "jolly", "fun", "casual", "splurge", "unnecessary", "luxury".
-     - General wants: Cinema tickets, restaurant outings, cafes, shopping clothes, gaming, bar/pub, streaming subscriptions.
+   - **NEED** (Essential / Mandatory / Cannot skip):
+     - Explicit triggers: "thevai", "theva", "mukkiyam", "avasiyam", "essential", "urgent", "kandippa", "necessary", "compulsory", "vitavillama".
+     - Implicit needs: groceries, maligai saman, vegetables, rice, dal, milk (paal), medicine (marunthu), tablets, doctor visit, petrol for commute, auto/bus fare, school/college fees, house rent, EB bill, water bill, gas cylinder, cooking oil.
+   - **WANT** (Discretionary / Lifestyle / Luxury / Optional):
+     - Explicit triggers: "want", "aasa", "aasai", "paathen enjoy kaaga", "treat", "waste", "extra", "jolly", "fun", "casual", "splurge", "unnecessary", "luxury", "timepass", "aasaiya".
+     - Implicit wants: Cinema/OTT/Netflix, party, restaurant dining out, branded clothes shopping, gaming, bar/pub/tasmac, sweets/chocolate, cigarettes (sigaret), vacation/trip/resort, gym membership.
 
-3. **AMOUNTS & NUMBERS (TANGLISH & ENGLISH)**:
-   - Handle 'k' notation: "5k" = 5000, "1.5k" = 1500, "10 k" = 10000.
-   - Handle Tamil words: "ainooru" = 500, "aayiram" = 1000, "rendayiram" = 2000, "pathayiram" = 10000, "oru latcham" = 100000.
-   - Handle currency mentions: "rooba", "roobai", "rs", "rupees", "inr", "bucks".
+3. **AMOUNTS & NUMBERS (TANGLISH, SPOKEN TAMIL & ENGLISH)**:
+   - Numeric shortcuts: "5k" = 5000, "1.5k" = 1500, "10k" = 10000, "2.5 lakh" = 250000.
+   - Spoken Tamil number words: "onnu"=1, "rendu"=2, "moonu"=3, "naalu"=4, "anju"=5, "aaru"=6, "ezhu"=7, "ettu"=8, "onbadhu"=9, "pathu"=10.
+   - Spoken Tamil larger numbers: "nooru"=100, "ainooru"=500, "aayiram"=1000, "rendayiram"=2000, "anju aayiram"=5000, "pathayiram"=10000, "latcham"=100000, "kodi"=10000000.
+   - Currency mentions to ignore/strip: "rooba", "roobai", "roobaa", "rupees", "rs", "rs.", "inr", "bucks", "paisa", "₹".
+   - Always return "amount" as a plain positive number. If undetectable, return null.
 
-4. **ACCURATE CATEGORY MATCHING**:
-   - Match to one of the user's available categories. If none match exactly, pick the closest semantic match:
-     - "Food & Dining": biryani, shawarma, parotta, hotel, mess, canteen, swiggy, zomato, breakfast, lunch, dinner, tea, coffee, snacks, groceries, vegetables, milk, chicken, fruits.
-     - "Transport": petrol, diesel, auto fare, bus ticket, metro, rapido, uber, ola, toll, puncture, bike service.
-     - "Bills & Utilities": eb bill, current bill, wifi, mobile recharge, gas cylinder, dth, water bill, maid salary.
-     - "Housing & Rent": house rent, room rent, maintenance, flat advance.
-     - "Shopping": dress, clothes, shoes, amazon, flipkart, myntra, electronic gadget, watch.
-     - "Entertainment": movie, cinema, theatre, netflix, hotstar, spotify, game, party.
-     - "Health & Medical": tablets, medicine, doctor fees, hospital, scan, lab test, pharmacy.
-     - "Education & Courses": tuition, college fees, school fees, books, exam fee.
+4. **ACCURATE CATEGORY MATCHING (Match to user's available categories)**:
+   - "Food & Dining": biryani, shawarma, parotta, kothu parotta, dosa, idli, pongal, hotel, mess, canteen, swiggy, zomato, breakfast (kalai saapadu), lunch (mathi saapadu), dinner (iravu saapadu), snacks (tiffin), biscuit, groceries, maligai, vegetables (kaigari), fruits (pazham), milk (paal), egg (muttai), chicken (kozhi), mutton, supermarket, provisions, zepto, blinkit, instamart.
+   - "Tea & Coffee": tea (chai/theneer), coffee (kaapi), cafe, latte, starbucks, tea kadai, cool drinks (cooldrinks/coke/pepsi), juice (pazha rasam), soda.
+   - "Transport": petrol, diesel, fuel, gas, auto (autoriksha), bus, train, flight, uber, ola, rapido, metro, toll, parking, bike service, car service, fare, ticket, fastag, puncture, cab.
+   - "Housing & Rent": house rent (veetu vaadagai), room rent, maintenance, lease, mortgage, flat, apartment, furniture, plumbing, electrician, painting.
+   - "Bills & Utilities": EB bill, current bill, electricity, water bill, wifi, broadband, internet, mobile recharge, phone bill, gas cylinder, DTH, maid salary, servant, cook salary, cleaner, postpaid.
+   - "Shopping": dress, clothes, thuni, shirt, pant, shoes, sandal, amazon, flipkart, myntra, meesho, mall, watch, gadget, bag, headphones, earphones, sunglasses, purse, kurti, saree.
+   - "Entertainment": movie, cinema, theatre, padam, netflix, prime video, hotstar, disney, spotify, youtube premium, game, gaming, party, club, popcorn, show, concert, outing, pub, bar, tasmac.
+   - "Health & Medical": medicine, marunthu, tablets, doctor, hospital, clinic, pharmacy, medical shop, scan, lab test, blood test, apollo, medplus, gym, fitness, dental, dentist.
+   - "Education & Courses": school fees, college fees, course fees, books, padippu, class, exam fee, tuition, coaching, udemy, coursera.
+   - "Travel & Trips": trip, tour, resort, vacation, hotel booking, stay, sightseeing, trek, outing (multi-day).
 
 5. **MONEY LOCATION / WALLET MATCHING**:
-   - "cash" / "kai cash" / "hand cash" -> Cash
-   - "bank" / "sbi" / "hdfc" / "icici" / "card" / "debit card" -> Bank Account
-   - "gpay" / "phonepe" / "paytm" / "upi" / "online" -> Wallet / UPI
-   - "savings" / "reserve" / "emergency fund" -> Savings Account
+   - Cash: "cash", "kai cash", "hand cash", "physical cash", "panam", "kai la irukkura panam", "pocket la iruntha panam".
+   - Bank Account: "bank", "sbi", "hdfc", "icici", "axis", "kotak", "account", "bank account", "savings account", "current account", "card", "debit card", "credit card", "neft", "rtgs", "imps".
+   - Wallet / UPI: "gpay", "google pay", "paytm", "phonepe", "upi", "wallet", "apple pay", "digital wallet", "online pay", "online transfer", "upi transfer", "bhim".
+   - Savings Account: "savings", "savings account", "reserve", "savings reserve", "emergency fund", "fd", "fixed deposit", "rd", "recurring deposit".
+
+6. **COMMON MISCLASSIFICATION GUARD RULES**:
+   - If the input mentions "salary" + a person's role (maid/driver/cook/etc.) + a payment verb → ALWAYS EXPENSE.
+   - If the input mentions "salary" + "vanthuchu/credited/potanga" → ALWAYS INCOME.
+   - If the input mentions "kadan kuduthen" (gave a loan) → EXPENSE.
+   - If the input mentions "kadan thirumba vanthuchu/kedaichathu" (got loan repaid) → INCOME.
+   - If the input mentions "ATM la eduthen" without specifying external party → ALWAYS TRANSFER (withdrawal).
+   - If the input mentions "savings ku / savings account ku" + a transfer verb → ALWAYS TRANSFER (deposit to savings).
+   - If the input is ambiguous between expense and income, default to EXPENSE.
 
 ### OUTPUT JSON SCHEMA:
 Always return a strictly valid, raw JSON object (no markdown code fences, no introductory text):
@@ -214,42 +243,77 @@ Always return a strictly valid, raw JSON object (no markdown code fences, no int
   "cleanDescription": string
 }
 
-### FEW-SHOT EXAMPLES:
+### FEW-SHOT EXAMPLES (covering common Tanglish/Tamil slang and edge cases):
 
-Example 1:
+Example 1 — Basic Expense (Food, UPI):
 Input: "Hotel la 450 roobai ku biryani sapten gpay la"
 Output:
-{"amount":450,"type":"expense","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Wallet","transferType":"transfer","cleanDescription":"Biryani at hotel"}
+{"amount":450,"type":"expense","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Wallet","transferType":"transfer","cleanDescription":"Biryani at hotel via GPay"}
 
-Example 2:
+Example 2 — Paying someone else's salary → EXPENSE (NOT Income):
 Input: "Maid ku salary 3000 cash kuduthen"
 Output:
 {"amount":3000,"type":"expense","needWant":"Need","categoryName":"Bills & Utilities","sourceName":"Salary / Wages","locationName":"Cash","transferType":"transfer","cleanDescription":"Maid salary payment"}
 
-Example 3:
+Example 3 — Own salary received → INCOME:
 Input: "Office la irunthu monthly salary 45000 bank account la credited aachu"
 Output:
 {"amount":45000,"type":"income","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Bank Account","transferType":"transfer","cleanDescription":"Monthly salary credited from office"}
 
-Example 4:
+Example 4 — ATM Withdrawal → TRANSFER (not expense):
 Input: "Bank la irunthu 2000 cash eduthen atm la"
 Output:
 {"amount":2000,"type":"transfer","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Cash","fromLocationName":"Bank Account","toLocationName":"Cash","transferType":"withdrawal","cleanDescription":"ATM cash withdrawal from bank"}
 
-Example 5:
+Example 5 — Discretionary shopping (Want):
 Input: "Aasai kaaga amazon la 1500 roobai ku headphones vaanginen"
 Output:
 {"amount":1500,"type":"expense","needWant":"Want","categoryName":"Shopping","sourceName":"Salary / Wages","locationName":"Wallet","transferType":"transfer","cleanDescription":"Headphones purchase on Amazon"}
 
-Example 6:
+Example 6 — Essential petrol → EXPENSE (Need):
 Input: "Bike ku 500 petrol potten urgent thevai"
 Output:
 {"amount":500,"type":"expense","needWant":"Need","categoryName":"Transport","sourceName":"Salary / Wages","locationName":"Cash","transferType":"transfer","cleanDescription":"Petrol fuel for bike"}
 
-Example 7:
+Example 7 — Savings transfer → TRANSFER (deposit):
 Input: "Savings account ku 5k transfer pannen gpay la irunthu"
 Output:
-{"amount":5000,"type":"transfer","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Savings Account","fromLocationName":"Wallet","toLocationName":"Savings Account","transferType":"deposit","cleanDescription":"Transfer to savings reserve"}
+{"amount":5000,"type":"transfer","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Savings Account","fromLocationName":"Wallet","toLocationName":"Savings Account","transferType":"deposit","cleanDescription":"Transfer from GPay to savings account"}
+
+Example 8 — Loan repayment received → INCOME (NOT Expense):
+Input: "Arun kadan thirumba 2000 phonepela anupinaan"
+Output:
+{"amount":2000,"type":"income","needWant":"Need","categoryName":"Food & Dining","sourceName":"Other Income","locationName":"Wallet","transferType":"transfer","cleanDescription":"Loan repayment received from Arun via PhonePe"}
+
+Example 9 — Tenant paying rent → INCOME (NOT Expense):
+Input: "Tenant vaadagai 8000 gpay la kuduthan"
+Output:
+{"amount":8000,"type":"income","needWant":"Need","categoryName":"Food & Dining","sourceName":"Rental Income","locationName":"Wallet","transferType":"transfer","cleanDescription":"Rental income received from tenant via GPay"}
+
+Example 10 — Cashback refund → INCOME:
+Input: "Amazon refund 350 roobai account la vanthuchu"
+Output:
+{"amount":350,"type":"income","needWant":"Need","categoryName":"Food & Dining","sourceName":"Other Income","locationName":"Bank Account","transferType":"transfer","cleanDescription":"Amazon refund credited to account"}
+
+Example 11 — Giving a loan → EXPENSE:
+Input: "Friend ku 1000 cash kadan kuduthen"
+Output:
+{"amount":1000,"type":"expense","needWant":"Need","categoryName":"Shopping","sourceName":"Salary / Wages","locationName":"Cash","transferType":"transfer","cleanDescription":"Cash lent to friend"}
+
+Example 12 — Tanglish slang for entertainment (Want):
+Input: "Jollyaaga theatre la padam paathen 220 roobai pochu"
+Output:
+{"amount":220,"type":"expense","needWant":"Want","categoryName":"Entertainment","sourceName":"Salary / Wages","locationName":"Cash","transferType":"transfer","cleanDescription":"Movie ticket at theatre"}
+
+Example 13 — Spoken Tamil number (ainooru = 500):
+Input: "Maligai saman vaanginen ainooru roobai cash la"
+Output:
+{"amount":500,"type":"expense","needWant":"Need","categoryName":"Food & Dining","sourceName":"Salary / Wages","locationName":"Cash","transferType":"transfer","cleanDescription":"Groceries purchased for 500"}
+
+Example 14 — Freelance income:
+Input: "Client project payment 15000 account la vanthuchu"
+Output:
+{"amount":15000,"type":"income","needWant":"Need","categoryName":"Food & Dining","sourceName":"Freelance / Consulting","locationName":"Bank Account","transferType":"transfer","cleanDescription":"Freelance project payment received from client"}
 `;
 
 /**
