@@ -3,21 +3,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+
+// Always-visible layout shell — eager imports (small, always needed)
 import { TopBar } from './components/TopBar';
 import { BottomNav } from './components/BottomNav';
-import { DashboardView } from './components/views/DashboardView';
-import { InsightsView } from './components/views/InsightsView';
-import { BudgetView } from './components/views/BudgetView';
-import { ProfileView } from './components/views/ProfileView';
-import { SettingsView } from './components/views/SettingsView';
-import { AddTransactionModal } from './components/views/AddTransactionModal';
-import { TransactionDetailModal } from './components/modals/TransactionDetailModal';
-import { LinkAccountModal } from './components/modals/LinkAccountModal';
-import { NotificationCenterModal } from './components/modals/NotificationCenterModal';
-import { PinLockScreen } from './components/modals/PinLockScreen';
-import { OnboardingView } from './components/views/OnboardingView';
+import { LoadingSpinner } from './components/LoadingSpinner';
+
+// ─── Lazy-loaded route views ──────────────────────────────────────────────────
+// Each view is split into its own async chunk by Vite/Rollup.
+// They are only downloaded when the user navigates to that tab.
+const DashboardView     = lazy(() => import('./components/views/DashboardView').then(m => ({ default: m.DashboardView })));
+const InsightsView      = lazy(() => import('./components/views/InsightsView').then(m => ({ default: m.InsightsView })));
+const BudgetView        = lazy(() => import('./components/views/BudgetView').then(m => ({ default: m.BudgetView })));
+const ProfileView       = lazy(() => import('./components/views/ProfileView').then(m => ({ default: m.ProfileView })));
+const SettingsView      = lazy(() => import('./components/views/SettingsView').then(m => ({ default: m.SettingsView })));
+const OnboardingView    = lazy(() => import('./components/views/OnboardingView').then(m => ({ default: m.OnboardingView })));
+
+// ─── Lazy-loaded modals ───────────────────────────────────────────────────────
+// Modals are always rendered in the DOM (visibility controlled via context state),
+// but their JS is only fetched after the main shell loads.
+const AddTransactionModal    = lazy(() => import('./components/views/AddTransactionModal').then(m => ({ default: m.AddTransactionModal })));
+const TransactionDetailModal = lazy(() => import('./components/modals/TransactionDetailModal').then(m => ({ default: m.TransactionDetailModal })));
+const LinkAccountModal       = lazy(() => import('./components/modals/LinkAccountModal').then(m => ({ default: m.LinkAccountModal })));
+const NotificationCenterModal = lazy(() => import('./components/modals/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
+const PinLockScreen          = lazy(() => import('./components/modals/PinLockScreen').then(m => ({ default: m.PinLockScreen })));
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const AppContent: React.FC = () => {
   const { activeTab, toastMessage, isOnboarded, settings, isAppUnlocked, isAuthLoading } = useApp();
@@ -42,7 +55,9 @@ const AppContent: React.FC = () => {
   if (settings.isPinLockEnabled && !isAppUnlocked) {
     return (
       <>
-        <PinLockScreen />
+        <Suspense fallback={<LoadingSpinner />}>
+          <PinLockScreen />
+        </Suspense>
         {toastMessage && (
           <div className="fixed top-5 left-1/2 -translate-x-1/2 z-110 px-5 py-2.5 rounded-full bg-black text-white dark:bg-white dark:text-black text-xs md:text-sm font-bold shadow-2xl animate-bounce">
             {toastMessage}
@@ -56,7 +71,9 @@ const AppContent: React.FC = () => {
   if (!isOnboarded) {
     return (
       <>
-        <OnboardingView />
+        <Suspense fallback={<LoadingSpinner />}>
+          <OnboardingView />
+        </Suspense>
         {toastMessage && (
           <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-full bg-black text-white dark:bg-white dark:text-black text-xs md:text-sm font-bold shadow-2xl animate-bounce">
             {toastMessage}
@@ -84,27 +101,31 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white dark:bg-[#0B0F17] text-black dark:text-white flex flex-col antialiased transition-colors duration-200">
-      {/* Top Bar for Desktop & Mobile */}
+      {/* Top Bar for Desktop & Mobile — always eager-loaded */}
       <div className="max-w-[1200px] mx-auto w-full px-4 md:px-8">
         <TopBar />
       </div>
 
-      {/* Main Content View */}
+      {/* Main Content View — Suspense boundary for lazy route views */}
       <div className="flex-1 max-w-[1200px] mx-auto w-full px-4 md:px-8">
-        {renderActiveView()}
+        <Suspense fallback={<LoadingSpinner />}>
+          {renderActiveView()}
+        </Suspense>
       </div>
 
-      {/* Bottom Nav / Desktop Action */}
+      {/* Bottom Nav / Desktop Action — always eager-loaded */}
       <BottomNav />
 
-      {/* Modals */}
-      <AddTransactionModal />
-      <TransactionDetailModal />
-      <LinkAccountModal
-        isOpen={isLinkAccountOpen}
-        onClose={() => setIsLinkAccountOpen(false)}
-      />
-      <NotificationCenterModal />
+      {/* Modals — single Suspense boundary covers all modals together */}
+      <Suspense fallback={null}>
+        <AddTransactionModal />
+        <TransactionDetailModal />
+        <LinkAccountModal
+          isOpen={isLinkAccountOpen}
+          onClose={() => setIsLinkAccountOpen(false)}
+        />
+        <NotificationCenterModal />
+      </Suspense>
 
       {/* Toast Notification Alert */}
       {toastMessage && (
