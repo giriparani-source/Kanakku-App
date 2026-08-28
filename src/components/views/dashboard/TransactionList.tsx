@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Transaction, ExpenseTransaction, IncomeTransaction, TransferTransaction } from '../../../types';
 import { exportPDF, exportExcel } from '../../../utils/exportUtils';
+import { EmptyState } from '../../common/EmptyState';
 
 interface TransactionListProps {
   transactions: Transaction[];
@@ -225,19 +226,26 @@ export const TransactionList: React.FC<TransactionListProps> = ({
       {/* Transactions List Container */}
       <div className="bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-[2rem] overflow-hidden divide-y divide-neutral-200 dark:divide-[#243048] shadow-sm">
         {recentList.length === 0 ? (
-          <div className="p-8 text-center space-y-2">
-            <span className="material-symbols-outlined text-4xl text-neutral-400 font-bold">
-              receipt_long
-            </span>
-            <p className="text-sm text-black dark:text-white font-bold">No transactions recorded yet.</p>
-            <button
-              type="button"
-              onClick={() => setIsAddModalOpen(true)}
-              className="mt-2 px-4 py-2 bg-black dark:bg-white text-white dark:text-black text-xs font-black rounded-xl hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              Log Your First Transaction
-            </button>
-          </div>
+          <EmptyState
+            variant={searchTerm || filterType !== 'all' ? 'search' : 'transactions'}
+            title={searchTerm || filterType !== 'all' ? 'No Matching Transactions' : 'No Transactions Yet'}
+            description={
+              searchTerm || filterType !== 'all'
+                ? `No transactions match "${searchTerm || filterType}". Try adjusting or resetting your filter.`
+                : 'No transactions yet. Click the + button to add your first expense!'
+            }
+            actionLabel={searchTerm || filterType !== 'all' ? 'Reset Filters' : 'Add First Transaction'}
+            actionIcon={searchTerm || filterType !== 'all' ? 'restart_alt' : 'add'}
+            onAction={() => {
+              if (searchTerm || filterType !== 'all') {
+                setSearchTerm('');
+                setFilterType('all');
+              } else {
+                setIsAddModalOpen(true);
+              }
+            }}
+            className="border-none shadow-none bg-transparent dark:bg-transparent"
+          />
         ) : (
           recentList.map((tx: Transaction) => {
             const isIncome = tx.type === 'income';

@@ -4,6 +4,7 @@ import { ExpenseTransaction, IncomeTransaction } from '../../types';
 import { exportPDF, exportExcel } from '../../utils/exportUtils';
 import { HealthScoreWidget } from './HealthScoreWidget';
 import { AiBudgetCoach } from './AiBudgetCoach';
+import { EmptyState } from '../common/EmptyState';
 
 export const InsightsView: React.FC = () => {
   const {
@@ -130,25 +131,13 @@ export const InsightsView: React.FC = () => {
           </p>
         </div>
 
-        <div className="bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-[2rem] p-8 md:p-12 text-center shadow-sm flex flex-col items-center justify-center space-y-4">
-          <div className="w-16 h-16 rounded-3xl bg-white dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] flex items-center justify-center shadow-sm">
-            <span className="material-symbols-outlined text-3xl text-black dark:text-white">analytics</span>
-          </div>
-          <div className="max-w-md space-y-1.5">
-            <h3 className="text-lg font-black text-black dark:text-white">No Spending Data Yet</h3>
-            <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400">
-              Start logging your income &amp; expenses to unlock real-time category distribution, doughnut charts, and monthly comparison trends.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-6 py-3 rounded-2xl bg-black dark:bg-white text-white dark:text-black text-xs md:text-sm font-black hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-all shadow-md active:scale-98 cursor-pointer flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-base">add</span>
-            <span>Record First Transaction</span>
-          </button>
-        </div>
+        <EmptyState
+          variant="insights"
+          title="No Spending Data Yet"
+          description="Start logging your income & expenses to unlock real-time category distribution, doughnut charts, and monthly comparison trends."
+          actionLabel="Record First Transaction"
+          onAction={() => setIsAddModalOpen(true)}
+        />
       </main>
     );
   }

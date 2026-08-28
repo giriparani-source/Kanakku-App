@@ -10,6 +10,11 @@ import { AppProvider, useApp } from './context/AppContext';
 import { TopBar } from './components/TopBar';
 import { BottomNav } from './components/BottomNav';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import {
+  DashboardSkeleton,
+  InsightsSkeleton,
+  ViewSkeleton,
+} from './components/common/Skeletons';
 
 // ─── Lazy-loaded route views ──────────────────────────────────────────────────
 // Each view is split into its own async chunk by Vite/Rollup.
@@ -99,6 +104,22 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const renderFallbackSkeleton = () => {
+    switch (activeTab) {
+      case 'insights':
+        return <InsightsSkeleton />;
+      case 'budget':
+        return <ViewSkeleton title="Budget & Goals" />;
+      case 'profile':
+        return <ViewSkeleton title="Profile & Accounts" />;
+      case 'settings':
+        return <ViewSkeleton title="App Settings" />;
+      case 'home':
+      default:
+        return <DashboardSkeleton />;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white dark:bg-[#0B0F17] text-black dark:text-white flex flex-col antialiased transition-colors duration-200">
       {/* Top Bar for Desktop & Mobile — always eager-loaded */}
@@ -106,9 +127,9 @@ const AppContent: React.FC = () => {
         <TopBar />
       </div>
 
-      {/* Main Content View — Suspense boundary for lazy route views */}
+      {/* Main Content View — Granular Skeleton boundary for lazy route views */}
       <div className="flex-1 max-w-[1200px] mx-auto w-full px-4 md:px-8">
-        <Suspense fallback={<LoadingSpinner />}>
+        <Suspense fallback={renderFallbackSkeleton()}>
           {renderActiveView()}
         </Suspense>
       </div>

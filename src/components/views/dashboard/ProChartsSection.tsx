@@ -12,6 +12,7 @@
 
 import React, { useState } from 'react';
 import { Transaction, IncomeTransaction, ExpenseTransaction } from '../../../types';
+import { EmptyState } from '../../common/EmptyState';
 
 interface ProChartsSectionProps {
   transactions: Transaction[];
@@ -100,17 +101,12 @@ export const ProChartsSection: React.FC<ProChartsSectionProps> = ({
 
   if (!hasData) {
     return (
-      <section className="bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-3xl p-6 shadow-sm text-center space-y-3">
-        <span className="material-symbols-outlined text-4xl text-neutral-400 dark:text-neutral-600 block">
-          show_chart
-        </span>
-        <p className="text-sm font-black text-black dark:text-white">
-          Pro Analytics Unavailable
-        </p>
-        <p className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-          Log at least one income or expense to unlock the Monthly Spending Trend and Income vs Expense charts.
-        </p>
-      </section>
+      <EmptyState
+        variant="insights"
+        title="Pro Analytics Awaiting Data"
+        description="Log your first income or expense to activate real-time monthly trend and cash flow comparison charts."
+        className="col-span-full"
+      />
     );
   }
 
