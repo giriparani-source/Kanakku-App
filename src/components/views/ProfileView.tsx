@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserProfession, UserProfile } from '../../types';
-import { fileToBase64 } from '../../utils/imageUtils';
+import { validateImageFile } from '../../utils/imageUtils';
+import { ImageCropperModal } from '../modals/ImageCropperModal';
 
 interface ProfileViewProps {
   onOpenLinkAccount: () => void;
@@ -61,6 +62,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
   const [emailInput, setEmailInput] = useState(profile.email || currentUser?.email || '');
   const [phoneInput, setPhoneInput] = useState(profile.phone || '');
 
+  // Cropper State
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string>('');
+
   // Synchronize form fields whenever profile changes and modal is closed
   useEffect(() => {
     if (!isEditingInfo) {
@@ -98,15 +103,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
   const [confirmPinInput, setConfirmPinInput] = useState(settings.pinCode || '1234');
   const [pinError, setPinError] = useState('');
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input so the user can choose the same file again if desired
+    e.target.value = '';
+
+    // Strict validation: format (JPEG/PNG) and size (<=5MB)
+    const validation = validateImageFile(file);
+    if (!validation.isValid) {
+      showToast(validation.error || 'Invalid image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropSrc(reader.result?.toString() || '');
+      setIsCropModalOpen(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleApplyCroppedAvatar = async (croppedBase64: string) => {
+    if (!croppedBase64) return;
     try {
-      const base64 = await fileToBase64(file);
-      await updateProfileAvatar(base64);
+      await updateProfileAvatar(croppedBase64);
     } catch (err) {
-      console.error('Avatar error:', err);
+      console.error('Avatar update error:', err);
       showToast('Failed to update avatar photo');
     }
   };
@@ -183,7 +207,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
       <input
         type="file"
         ref={avatarInputRef}
-        accept="image/*"
+        accept="image/jpeg,image/png,image/jpg"
         onChange={handleAvatarUpload}
         className="hidden"
       />
@@ -819,6 +843,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
           </div>
         </div>
       )}
+
+      {/* 1:1 Profile Picture Crop Modal */}
+      <ImageCropperModal
+        isOpen={isCropModalOpen}
+        imageSrc={cropSrc}
+        onClose={() => setIsCropModalOpen(false)}
+        onApplyCrop={handleApplyCroppedAvatar}
+        title="Change Profile Photo"
+      />
     </main>
   );
 };

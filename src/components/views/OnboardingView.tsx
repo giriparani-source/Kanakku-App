@@ -1,28 +1,10 @@
 import React, { useState, useRef } from 'react';
-import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
 import { useApp } from '../../context/AppContext';
 import { fetchAllFirestoreData, saveNewUser, fetchUserProfile } from '../../services/firestoreService';
-import { getCroppedCanvasImage } from '../../utils/imageUtils';
+import { validateImageFile } from '../../utils/imageUtils';
+import { ImageCropperModal } from '../modals/ImageCropperModal';
 import { DEFAULT_AVATAR } from '../../constants/data';
 import { CurrencyCode, UserProfession } from '../../types';
-
-// Helper to center a 1:1 aspect crop on image load
-function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: number = 1): Crop {
-  return centerCrop(
-    makeAspectCrop(
-      {
-        unit: '%',
-        width: 80,
-      },
-      aspect,
-      mediaWidth,
-      mediaHeight
-    ),
-    mediaWidth,
-    mediaHeight
-  );
-}
 
 // Calculate age from Date of Birth string (YYYY-MM-DD)
 function calculateAge(dobString: string): number {
@@ -78,12 +60,9 @@ export const OnboardingView: React.FC = () => {
   const [avatar, setAvatar] = useState<string>(DEFAULT_AVATAR);
   const [tab2Error, setTab2Error] = useState<string | null>(null);
 
-  // Cropper State (react-image-crop)
+  // Cropper State
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState<string>('');
-  const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const imgRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ==========================================
@@ -256,7 +235,15 @@ export const OnboardingView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input value to allow re-upload of the same file if desired
     e.target.value = '';
+
+    // Strict validation: format (JPEG/PNG) and size (<=5MB)
+    const validation = validateImageFile(file);
+    if (!validation.isValid) {
+      showToast(validation.error || 'Invalid image file.');
+      return;
+    }
 
     const reader = new FileReader();
     reader.addEventListener('load', () => {
@@ -266,28 +253,10 @@ export const OnboardingView: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { width, height } = e.currentTarget;
-    setCrop(centerAspectCrop(width, height, 1));
-  };
-
-  const handleApplyCroppedImage = () => {
-    if (!imgRef.current || !completedCrop) {
-      setIsCropModalOpen(false);
-      return;
-    }
-
-    try {
-      const croppedBase64 = getCroppedCanvasImage(imgRef.current, completedCrop, 300);
-      if (croppedBase64) {
-        setAvatar(croppedBase64);
-        showToast('Profile photo cropped & updated!');
-      }
-    } catch (err) {
-      console.error('Error cropping image:', err);
-      showToast('Could not process crop. Please try again.');
-    } finally {
-      setIsCropModalOpen(false);
+  const handleApplyCroppedAvatar = (croppedBase64: string) => {
+    if (croppedBase64) {
+      setAvatar(croppedBase64);
+      showToast('Profile photo cropped & updated!');
     }
   };
 
@@ -673,7 +642,7 @@ export const OnboardingView: React.FC = () => {
               <input
                 type="file"
                 ref={fileInputRef}
-                accept="image/*"
+                accept="image/jpeg,image/png,image/jpg"
                 onChange={handleSelectImageFile}
                 className="hidden"
               />
@@ -1100,72 +1069,14 @@ export const OnboardingView: React.FC = () => {
         )}
       </div>
 
-      {/* ========================================================================= */}
-      {/* 1:1 AVATAR CROP MODAL (using react-image-crop)                            */}
-      {/* ========================================================================= */}
-      {isCropModalOpen && cropSrc && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-md bg-white dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-[2rem] p-6 shadow-2xl space-y-5 animate-scaleUp">
-            
-            <div className="flex items-center justify-between border-b border-neutral-200 dark:border-[#2E3C56] pb-3">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-xl text-black dark:text-white">crop</span>
-                <h3 className="text-lg font-black text-black dark:text-white">Crop Profile Photo (1:1)</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCropModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 cursor-pointer transition-colors"
-              >
-                <span className="material-symbols-outlined text-lg">close</span>
-              </button>
-            </div>
-
-            {/* Cropping Area */}
-            <div className="flex items-center justify-center max-h-[55vh] overflow-hidden bg-neutral-900/90 rounded-2xl p-2">
-              <ReactCrop
-                crop={crop}
-                onChange={(_, percentCrop) => setCrop(percentCrop)}
-                onComplete={(c) => setCompletedCrop(c)}
-                aspect={1}
-                circularCrop
-                className="max-h-[50vh] max-w-full"
-              >
-                <img
-                  ref={imgRef}
-                  src={cropSrc}
-                  alt="Crop Source"
-                  onLoad={onImageLoad}
-                  className="max-h-[50vh] max-w-full object-contain"
-                />
-              </ReactCrop>
-            </div>
-
-            <p className="text-[11px] text-center text-neutral-500 dark:text-neutral-400 font-bold">
-              Drag corners or move to adjust your 1:1 circular avatar crop.
-            </p>
-
-            {/* Modal Actions */}
-            <div className="flex gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => setIsCropModalOpen(false)}
-                className="flex-1 py-3 rounded-xl font-black text-xs bg-neutral-100 dark:bg-[#1C263A] text-black dark:text-white border border-neutral-200 dark:border-[#2E3C56] hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleApplyCroppedImage}
-                className="flex-2 py-3 rounded-xl font-black text-xs bg-black dark:bg-white text-white dark:text-black hover:opacity-90 active:scale-[0.98] transition-all shadow-lg cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-base">check</span>
-                <span>Apply Crop</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 1:1 AVATAR CROP MODAL (Reusable ImageCropperModal) */}
+      <ImageCropperModal
+        isOpen={isCropModalOpen}
+        imageSrc={cropSrc}
+        onClose={() => setIsCropModalOpen(false)}
+        onApplyCrop={handleApplyCroppedAvatar}
+        title="Crop Profile Photo"
+      />
     </div>
   );
 };
