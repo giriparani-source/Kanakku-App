@@ -7,7 +7,7 @@ export interface ImageValidationResult {
 
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png'];
 export const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-export const MIN_IMAGE_DIMENSION = 150; // 150px minimum width/height
+export const MIN_IMAGE_DIMENSION = 256; // 256px minimum width & height
 
 /**
  * Validates file type (JPEG/PNG only) and file size (<= 5MB).
@@ -42,7 +42,7 @@ export const validateImageFile = (file: File): ImageValidationResult => {
 };
 
 /**
- * Checks if the image natural dimensions satisfy minimum resolution requirements.
+ * Checks if the image dimensions meet the minimum resolution (default: 256x256 px).
  */
 export const checkImageResolution = (
   width: number,
@@ -52,10 +52,45 @@ export const checkImageResolution = (
   if (!width || !height || width < minDim || height < minDim) {
     return {
       isValid: false,
-      error: `Image resolution is too low (${width || 0}x${height || 0}px). Minimum recommended resolution is ${minDim}x${minDim}px.`,
+      error: `Image resolution is too low (${width || 0}x${height || 0}px). Minimum required resolution is ${minDim}x${minDim} pixels.`,
     };
   }
   return { isValid: true };
+};
+
+/**
+ * Asynchronously validates format, file size, and image resolution (>= 256x256 px).
+ */
+export const validateImageFileAndDimensions = (
+  file: File,
+  minDim: number = MIN_IMAGE_DIMENSION
+): Promise<ImageValidationResult> => {
+  return new Promise((resolve) => {
+    const baseValidation = validateImageFile(file);
+    if (!baseValidation.isValid) {
+      resolve(baseValidation);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const resCheck = checkImageResolution(img.naturalWidth, img.naturalHeight, minDim);
+      resolve(resCheck);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({
+        isValid: false,
+        error: 'Unable to process the image file. Please check if the file is corrupted.',
+      });
+    };
+
+    img.src = objectUrl;
+  });
 };
 
 /**
@@ -145,7 +180,7 @@ export const getCroppedCanvasImage = (
   targetSize: number = 300,
   scale: number = 1,
   rotate: number = 0,
-  quality: number = 0.85
+  quality: number = 0.88
 ): string => {
   if (!image || !crop || crop.width === 0 || crop.height === 0) {
     return '';

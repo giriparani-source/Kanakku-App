@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserProfession, UserProfile } from '../../types';
-import { validateImageFile } from '../../utils/imageUtils';
+import { validateImageFileAndDimensions } from '../../utils/imageUtils';
 import { ImageCropperModal } from '../modals/ImageCropperModal';
 
 interface ProfileViewProps {
@@ -103,15 +103,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenLinkAccount }) =
   const [confirmPinInput, setConfirmPinInput] = useState(settings.pinCode || '1234');
   const [pinError, setPinError] = useState('');
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Reset input so the user can choose the same file again if desired
     e.target.value = '';
 
-    // Strict validation: format (JPEG/PNG) and size (<=5MB)
-    const validation = validateImageFile(file);
+    // Strict validation: format (JPEG/PNG), size (<=5MB), and min resolution (>=256x256px)
+    const validation = await validateImageFileAndDimensions(file);
     if (!validation.isValid) {
       showToast(validation.error || 'Invalid image file.');
       return;

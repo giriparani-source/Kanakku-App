@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { fetchAllFirestoreData, saveNewUser, fetchUserProfile } from '../../services/firestoreService';
-import { validateImageFile } from '../../utils/imageUtils';
+import { validateImageFileAndDimensions } from '../../utils/imageUtils';
 import { ImageCropperModal } from '../modals/ImageCropperModal';
 import { DEFAULT_AVATAR } from '../../constants/data';
 import { CurrencyCode, UserProfession } from '../../types';
@@ -231,15 +231,15 @@ export const OnboardingView: React.FC = () => {
   // ==========================================
   // TAB 2: Image Selection & Cropping Handlers
   // ==========================================
-  const handleSelectImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Reset input value to allow re-upload of the same file if desired
     e.target.value = '';
 
-    // Strict validation: format (JPEG/PNG) and size (<=5MB)
-    const validation = validateImageFile(file);
+    // Strict validation: format (JPEG/PNG), size (<=5MB), and min resolution (>=256x256px)
+    const validation = await validateImageFileAndDimensions(file);
     if (!validation.isValid) {
       showToast(validation.error || 'Invalid image file.');
       return;
