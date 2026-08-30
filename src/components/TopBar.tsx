@@ -20,8 +20,7 @@ export const TopBar: React.FC = () => {
     switch (activeTab) {
       case 'insights':
         return 'Insights';
-      case 'split':
-        return 'Split with Friends';
+
       case 'budget':
         return 'Budget & Envelopes';
       case 'profile':
@@ -81,16 +80,7 @@ export const TopBar: React.FC = () => {
           >
             Insights
           </button>
-          <button
-            onClick={() => setActiveTab('split')}
-            className={`text-sm transition-all pb-1 cursor-pointer ${
-              activeTab === 'split'
-                ? 'text-black dark:text-white font-black border-b-2 border-black dark:border-white'
-                : 'text-neutral-600 dark:text-neutral-400 font-bold hover:text-black dark:hover:text-white'
-            }`}
-          >
-            Split
-          </button>
+
           <button
             onClick={() => setActiveTab('budget')}
             className={`text-sm transition-all pb-1 cursor-pointer ${

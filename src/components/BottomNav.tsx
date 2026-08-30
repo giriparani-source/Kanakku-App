@@ -59,25 +59,7 @@ export const BottomNav: React.FC = () => {
           </button>
         </div>
 
-        {/* Split with Friends */}
-        <button
-          onClick={() => setActiveTab('split')}
-          className={`flex flex-col items-center justify-center w-11 py-1 transition-transform duration-150 active:scale-90 cursor-pointer ${
-            activeTab === 'split'
-              ? 'text-[#0066FF] font-black'
-              : 'text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white font-bold'
-          }`}
-          aria-label="Split"
-        >
-          <span
-            className={`material-symbols-outlined text-[24px] ${
-              activeTab === 'split' ? 'fill text-[#0066FF]' : ''
-            }`}
-          >
-            call_split
-          </span>
-          <span className="text-[10px] font-bold mt-0.5">Split</span>
-        </button>
+
 
         {/* Budget */}
         <button

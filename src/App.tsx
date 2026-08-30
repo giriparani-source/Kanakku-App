@@ -21,7 +21,6 @@ import {
 // They are only downloaded when the user navigates to that tab.
 const DashboardView     = lazy(() => import('./components/views/DashboardView').then(m => ({ default: m.DashboardView })));
 const InsightsView      = lazy(() => import('./components/views/InsightsView').then(m => ({ default: m.InsightsView })));
-const SplitView         = lazy(() => import('./components/views/SplitView').then(m => ({ default: m.SplitView })));
 const BudgetView        = lazy(() => import('./components/views/BudgetView').then(m => ({ default: m.BudgetView })));
 const ProfileView       = lazy(() => import('./components/views/ProfileView').then(m => ({ default: m.ProfileView })));
 const SettingsView      = lazy(() => import('./components/views/SettingsView').then(m => ({ default: m.SettingsView })));
@@ -35,10 +34,6 @@ const NotificationCenterModal = lazy(() => import('./components/modals/Notificat
 const PinLockScreen          = lazy(() => import('./components/modals/PinLockScreen').then(m => ({ default: m.PinLockScreen })));
 const AutoSmsModal           = lazy(() => import('./components/modals/AutoSmsModal').then(m => ({ default: m.AutoSmsModal })));
 const ReceiptScannerModal    = lazy(() => import('./components/modals/ReceiptScannerModal').then(m => ({ default: m.ReceiptScannerModal })));
-const AddSplitExpenseModal   = lazy(() => import('./components/modals/AddSplitExpenseModal').then(m => ({ default: m.AddSplitExpenseModal })));
-const SettleUpModal          = lazy(() => import('./components/modals/SettleUpModal').then(m => ({ default: m.SettleUpModal })));
-const NewFriendModal         = lazy(() => import('./components/modals/NewFriendModal').then(m => ({ default: m.NewFriendModal })));
-const NewGroupModal          = lazy(() => import('./components/modals/NewGroupModal').then(m => ({ default: m.NewGroupModal })));
 import { SmsReviewBanner }   from './components/modals/SmsReviewBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,14 +55,6 @@ const AppContent: React.FC = () => {
     isReceiptScannerOpen,
     setIsReceiptScannerOpen,
     setPendingReceiptData,
-    isAddSplitExpenseOpen,
-    setIsAddSplitExpenseOpen,
-    settleUpModalData,
-    setSettleUpModalData,
-    newFriendModalOpen,
-    setNewFriendModalOpen,
-    newGroupModalOpen,
-    setNewGroupModalOpen,
   } = useApp();
   const [isLinkAccountOpen, setIsLinkAccountOpen] = useState(false);
 
@@ -122,8 +109,7 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'insights':
         return <InsightsView />;
-      case 'split':
-        return <SplitView />;
+
       case 'budget':
         return <BudgetView />;
       case 'profile':
@@ -140,8 +126,7 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'insights':
         return <InsightsSkeleton />;
-      case 'split':
-        return <ViewSkeleton title="Split with Friends" />;
+
       case 'budget':
         return <ViewSkeleton title="Budget & Goals" />;
       case 'profile':
@@ -209,26 +194,7 @@ const AppContent: React.FC = () => {
             setIsAddModalOpen(true);
           }}
         />
-        <AddSplitExpenseModal
-          isOpen={isAddSplitExpenseOpen}
-          onClose={() => setIsAddSplitExpenseOpen(false)}
-        />
-        {settleUpModalData && (
-          <SettleUpModal
-            isOpen={Boolean(settleUpModalData)}
-            onClose={() => setSettleUpModalData(null)}
-            friendId={settleUpModalData.friendId}
-            defaultAmount={settleUpModalData.defaultAmount}
-          />
-        )}
-        <NewFriendModal
-          isOpen={newFriendModalOpen}
-          onClose={() => setNewFriendModalOpen(false)}
-        />
-        <NewGroupModal
-          isOpen={newGroupModalOpen}
-          onClose={() => setNewGroupModalOpen(false)}
-        />
+
       </Suspense>
 
       {/* Toast Notification Alert */}
