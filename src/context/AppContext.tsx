@@ -23,6 +23,10 @@ import {
   NeedWantType,
   TransferType,
   UserProfession,
+  SplitFriend,
+  SplitGroup,
+  SplitExpense,
+  SplitSettlement,
 } from '../types';
 import {
   DEFAULT_CATEGORIES,
@@ -33,7 +37,21 @@ import {
   INITIAL_NOTIFICATIONS,
   INITIAL_SETTINGS,
   INITIAL_BUDGETS,
+  DEFAULT_SPLIT_FRIENDS,
+  DEFAULT_SPLIT_GROUPS,
+  DEFAULT_SPLIT_EXPENSES,
 } from '../constants/data';
+import { ParsedSmsResult, parseBankSmsRegex } from '../utils/smsParser';
+import { ParsedReceiptResult, processOfflineReceiptQueue } from '../utils/receiptOcr';
+import {
+  isNativeAndroid,
+  checkSmsPermissions,
+  SmsReader,
+  getProcessedSmsIds,
+  getDismissedSmsIds,
+  hashSmsMessage,
+  initWebSmsAutoListener,
+} from '../services/smsService';
 import {
   subscribeToProfile,
   subscribeToSettings,
@@ -64,14 +82,55 @@ interface AppContextType {
   logoutUser: () => Promise<void>;
 
   // Navigation
-  activeTab: 'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings';
-  setActiveTab: (tab: 'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings') => void;
+  activeTab: 'home' | 'insights' | 'split' | 'budget' | 'profile' | 'settings';
+  setActiveTab: (tab: 'home' | 'insights' | 'split' | 'budget' | 'profile' | 'settings') => void;
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
   selectedTransaction: Transaction | null;
   setSelectedTransaction: (tx: Transaction | null) => void;
   notificationCenterOpen: boolean;
   setNotificationCenterOpen: (open: boolean) => void;
+
+  // Split with Friends (Kanakku Sharing)
+  splitFriends: SplitFriend[];
+  splitGroups: SplitGroup[];
+  splitExpenses: SplitExpense[];
+  splitSettlements: SplitSettlement[];
+  friendBalances: Record<string, number>;
+  totalYouAreOwed: number;
+  totalYouOwe: number;
+  netSplitBalance: number;
+  isAddSplitExpenseOpen: boolean;
+  setIsAddSplitExpenseOpen: (open: boolean) => void;
+  settleUpModalData: { friendId: string; defaultAmount?: number } | null;
+  setSettleUpModalData: (data: { friendId: string; defaultAmount?: number } | null) => void;
+  newFriendModalOpen: boolean;
+  setNewFriendModalOpen: (open: boolean) => void;
+  newGroupModalOpen: boolean;
+  setNewGroupModalOpen: (open: boolean) => void;
+  addSplitExpense: (expense: Omit<SplitExpense, 'id' | 'createdAt'>) => Promise<void>;
+  deleteSplitExpense: (id: string) => Promise<void>;
+  settleSplitDebt: (fromMemberId: string, toMemberId: string, amount: number, paymentMode: 'upi' | 'cash' | 'other', referenceNote?: string) => Promise<void>;
+  addSplitFriend: (friend: Omit<SplitFriend, 'id'>) => Promise<void>;
+  updateSplitFriend: (id: string, updates: Partial<SplitFriend>) => Promise<void>;
+  deleteSplitFriend: (id: string) => Promise<void>;
+  addSplitGroup: (group: Omit<SplitGroup, 'id' | 'createdAt'>) => Promise<void>;
+  updateSplitGroup: (id: string, updates: Partial<SplitGroup>) => Promise<void>;
+  deleteSplitGroup: (id: string) => Promise<void>;
+
+  // Auto Bank SMS Detection
+  isAutoSmsModalOpen: boolean;
+  setIsAutoSmsModalOpen: (open: boolean) => void;
+  pendingSmsNotification: ParsedSmsResult | null;
+  setPendingSmsNotification: (sms: ParsedSmsResult | null) => void;
+  pendingEditSms: ParsedSmsResult | null;
+  setPendingEditSms: (sms: ParsedSmsResult | null) => void;
+
+  // Bill & Receipt Scanner (Gemini Vision OCR)
+  isReceiptScannerOpen: boolean;
+  setIsReceiptScannerOpen: (open: boolean) => void;
+  pendingReceiptData: ParsedReceiptResult | null;
+  setPendingReceiptData: (receipt: ParsedReceiptResult | null) => void;
 
   // Cloud Sync Status
   isCloudSynced: boolean;
@@ -235,15 +294,54 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'kanakku_v2_transactions',
   NOTIFICATIONS: 'kanakku_v2_notifications',
   BUDGETS: 'kanakku_v2_budgets',
+  SPLIT_FRIENDS: 'kanakku_v2_split_friends',
+  SPLIT_GROUPS: 'kanakku_v2_split_groups',
+  SPLIT_EXPENSES: 'kanakku_v2_split_expenses',
+  SPLIT_SETTLEMENTS: 'kanakku_v2_split_settlements',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'home' | 'insights' | 'add' | 'budget' | 'profile' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'insights' | 'split' | 'budget' | 'profile' | 'settings'>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Split with Friends State
+  const [splitFriends, setSplitFriends] = useState<SplitFriend[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SPLIT_FRIENDS);
+    return saved ? JSON.parse(saved) : DEFAULT_SPLIT_FRIENDS;
+  });
+
+  const [splitGroups, setSplitGroups] = useState<SplitGroup[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SPLIT_GROUPS);
+    return saved ? JSON.parse(saved) : DEFAULT_SPLIT_GROUPS;
+  });
+
+  const [splitExpenses, setSplitExpenses] = useState<SplitExpense[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SPLIT_EXPENSES);
+    return saved ? JSON.parse(saved) : DEFAULT_SPLIT_EXPENSES;
+  });
+
+  const [splitSettlements, setSplitSettlements] = useState<SplitSettlement[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SPLIT_SETTLEMENTS);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [isAddSplitExpenseOpen, setIsAddSplitExpenseOpen] = useState<boolean>(false);
+  const [settleUpModalData, setSettleUpModalData] = useState<{ friendId: string; defaultAmount?: number } | null>(null);
+  const [newFriendModalOpen, setNewFriendModalOpen] = useState<boolean>(false);
+  const [newGroupModalOpen, setNewGroupModalOpen] = useState<boolean>(false);
+
+  // Auto Bank SMS States
+  const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState<boolean>(false);
+  const [pendingSmsNotification, setPendingSmsNotification] = useState<ParsedSmsResult | null>(null);
+  const [pendingEditSms, setPendingEditSms] = useState<ParsedSmsResult | null>(null);
+
+  // Bill & Receipt Scanner (Gemini Vision OCR)
+  const [isReceiptScannerOpen, setIsReceiptScannerOpen] = useState<boolean>(false);
+  const [pendingReceiptData, setPendingReceiptData] = useState<ParsedReceiptResult | null>(null);
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -340,8 +438,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubProfile = subscribeToProfile(user.uid, (cloudProfile) => {
           if (cloudProfile && cloudProfile.name) {
             setProfile(cloudProfile);
-            setIsOnboarded(true);
-            localStorage.setItem(STORAGE_KEYS.ONBOARDED, 'true');
+            const isCompleted = localStorage.getItem(STORAGE_KEYS.ONBOARDED) === 'true';
+            if (isCompleted) {
+              setIsOnboarded(true);
+            }
             localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(cloudProfile));
           }
         });
@@ -427,6 +527,221 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // ==========================================
+  // UNIFIED AUTO BANK SMS LISTENER (NATIVE + WEB)
+  // ==========================================
+  useEffect(() => {
+    // 1. Android Native Background SMS Listener
+    if (isNativeAndroid()) {
+      let listenerHandle: any = null;
+
+      const setupNativeListener = async () => {
+        const hasPermission = await checkSmsPermissions();
+        if (!hasPermission) return;
+
+        listenerHandle = await SmsReader.addListener('onSmsReceived', (rawSms) => {
+          const parsed = parseBankSmsRegex(rawSms.body, categories, locations, incomeSources);
+          if (parsed && parsed.amount > 0) {
+            const processed = getProcessedSmsIds();
+            const dismissed = getDismissedSmsIds();
+            const hash = hashSmsMessage(rawSms.sender, rawSms.body, rawSms.timestamp);
+
+            if (!processed.has(hash) && !dismissed.has(hash)) {
+              parsed.smsId = hash;
+              setPendingSmsNotification(parsed);
+            }
+          }
+        });
+      };
+
+      setupNativeListener();
+
+      return () => {
+        if (listenerHandle?.remove) {
+          listenerHandle.remove();
+        }
+      };
+    } else {
+      // 2. Web Browser & PWA Smart Auto-Detection (WebOTP + Clipboard Ingestion)
+      const cleanupWebListener = initWebSmsAutoListener((parsed) => {
+        setPendingSmsNotification(parsed);
+      });
+
+      return () => {
+        cleanupWebListener();
+      };
+    }
+  }, []);
+
+  // ==========================================
+  // OFFLINE RECEIPT BACKGROUND RECONNECT SYNC
+  // ==========================================
+  useEffect(() => {
+    const handleOnline = () => {
+      processOfflineReceiptQueue(categories, locations, (enhanced) => {
+        showToast(`✨ Offline receipt from ${enhanced.merchantName} enhanced via Gemini AI!`);
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    // Run check on initial mount if online
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      processOfflineReceiptQueue(categories, locations);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [categories, locations]);
+
+  // ==========================================
+  // SPLIT WITH FRIENDS (KANAKKU SHARING) ENGINE
+  // ==========================================
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SPLIT_FRIENDS, JSON.stringify(splitFriends));
+  }, [splitFriends]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SPLIT_GROUPS, JSON.stringify(splitGroups));
+  }, [splitGroups]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SPLIT_EXPENSES, JSON.stringify(splitExpenses));
+  }, [splitExpenses]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SPLIT_SETTLEMENTS, JSON.stringify(splitSettlements));
+  }, [splitSettlements]);
+
+  // Real-time Balances Engine
+  const { friendBalances, totalYouAreOwed, totalYouOwe, netSplitBalance } = useMemo(() => {
+    const balances: Record<string, number> = {};
+    splitFriends.forEach((f) => {
+      balances[f.id] = 0;
+    });
+
+    // 1. Process all split expenses
+    splitExpenses.forEach((exp) => {
+      if (exp.paidBy === 'user') {
+        // User paid the full bill: each friend owes their share amount to the user
+        exp.shares.forEach((share) => {
+          if (share.memberId !== 'user') {
+            balances[share.memberId] = (balances[share.memberId] || 0) + share.amount;
+          }
+        });
+      } else {
+        // A friend paid the bill: user owes their own share to that friend
+        const payerId = exp.paidBy;
+        const userShare = exp.shares.find((s) => s.memberId === 'user');
+        if (userShare) {
+          balances[payerId] = (balances[payerId] || 0) - userShare.amount;
+        }
+      }
+    });
+
+    // 2. Process all settlements
+    splitSettlements.forEach((set) => {
+      if (set.fromMemberId === 'user') {
+        // User paid a debt to friend -> increases user's net balance with that friend
+        balances[set.toMemberId] = (balances[set.toMemberId] || 0) + set.amount;
+      } else if (set.toMemberId === 'user') {
+        // Friend paid a debt to user -> decreases friend's debt to user
+        balances[set.fromMemberId] = (balances[set.fromMemberId] || 0) - set.amount;
+      }
+    });
+
+    let owed = 0;
+    let owe = 0;
+
+    Object.values(balances).forEach((bal) => {
+      if (bal > 0) owed += bal;
+      if (bal < 0) owe += Math.abs(bal);
+    });
+
+    return {
+      friendBalances: balances,
+      totalYouAreOwed: owed,
+      totalYouOwe: owe,
+      netSplitBalance: owed - owe,
+    };
+  }, [splitFriends, splitExpenses, splitSettlements]);
+
+  const addSplitExpense = async (expenseData: Omit<SplitExpense, 'id' | 'createdAt'>) => {
+    const newExpense: SplitExpense = {
+      ...expenseData,
+      id: `split-exp-${Date.now()}`,
+      createdAt: Date.now(),
+    };
+    setSplitExpenses((prev) => [newExpense, ...prev]);
+    showToast(`Added shared expense: ${expenseData.description}`);
+  };
+
+  const deleteSplitExpense = async (id: string) => {
+    setSplitExpenses((prev) => prev.filter((e) => e.id !== id));
+    showToast('Deleted shared expense');
+  };
+
+  const settleSplitDebt = async (
+    fromMemberId: string,
+    toMemberId: string,
+    amount: number,
+    paymentMode: 'upi' | 'cash' | 'other',
+    referenceNote?: string
+  ) => {
+    const newSettlement: SplitSettlement = {
+      id: `set-${Date.now()}`,
+      fromMemberId,
+      toMemberId,
+      amount,
+      date: new Date().toISOString().split('T')[0],
+      paymentMode,
+      referenceNote,
+      createdAt: Date.now(),
+    };
+    setSplitSettlements((prev) => [newSettlement, ...prev]);
+    showToast(`Settlement recorded!`);
+  };
+
+  const addSplitFriend = async (friendData: Omit<SplitFriend, 'id'>) => {
+    const newFriend: SplitFriend = {
+      ...friendData,
+      id: `friend-${Date.now()}`,
+    };
+    setSplitFriends((prev) => [...prev, newFriend]);
+    showToast(`Added friend: ${friendData.name}`);
+  };
+
+  const updateSplitFriend = async (id: string, updates: Partial<SplitFriend>) => {
+    setSplitFriends((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
+    showToast('Updated friend details');
+  };
+
+  const deleteSplitFriend = async (id: string) => {
+    setSplitFriends((prev) => prev.filter((f) => f.id !== id));
+    showToast('Removed friend');
+  };
+
+  const addSplitGroup = async (groupData: Omit<SplitGroup, 'id' | 'createdAt'>) => {
+    const newGroup: SplitGroup = {
+      ...groupData,
+      id: `group-${Date.now()}`,
+      createdAt: Date.now(),
+    };
+    setSplitGroups((prev) => [...prev, newGroup]);
+    showToast(`Created group: ${groupData.name}`);
+  };
+
+  const updateSplitGroup = async (id: string, updates: Partial<SplitGroup>) => {
+    setSplitGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...updates } : g)));
+    showToast('Updated group');
+  };
+
+  const deleteSplitGroup = async (id: string) => {
+    setSplitGroups((prev) => prev.filter((g) => g.id !== id));
+    showToast('Deleted group');
+  };
+
+  // ==========================================
   // FIREBASE AUTH METHODS
   // ==========================================
   const signInUser = async (email: string, password: string) => {
@@ -486,6 +801,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast('Error signing out');
     }
   };
+
+  // ==========================================
+  // INCOMING SMS REAL-TIME LISTENER (ANDROID NATIVE)
+  // ==========================================
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    if (settings.autoSmsDetection === false) return;
+
+    let listenerHandle: any = null;
+
+    const initSmsListener = async () => {
+      try {
+        const hasPerm = await checkSmsPermissions();
+        if (!hasPerm) return;
+
+        listenerHandle = await SmsReader.addListener('onSmsReceived', (data) => {
+          try {
+            const hash = hashSmsMessage(data.sender, data.body, data.timestamp);
+            const processed = getProcessedSmsIds();
+            const dismissed = getDismissedSmsIds();
+
+            if (processed.has(hash) || dismissed.has(hash)) return;
+
+            const parsed = parseBankSmsRegex(data.body, categories, locations, incomeSources);
+            parsed.id = hash;
+
+            if (parsed.amount && parsed.amount > 0) {
+              setPendingSmsNotification(parsed);
+
+              // Also add to in-app notification center
+              const newNotif: AppNotification = {
+                id: 'notif-sms-' + Date.now(),
+                title: `⚡ Bank SMS: ${parsed.merchant}`,
+                message: `${parsed.type === 'expense' ? 'Debited' : 'Credited'} ${formatMoney(
+                  parsed.amount
+                )} (${parsed.categoryName})`,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                read: false,
+                icon: 'bolt',
+                type: 'alert',
+              };
+
+              setNotifications((prev) => [newNotif, ...prev]);
+            }
+          } catch (err) {
+            console.error('Error handling incoming SMS broadcast:', err);
+          }
+        });
+      } catch (err) {
+        console.error('Failed to initialize SMS listener:', err);
+      }
+    };
+
+    initSmsListener();
+
+    return () => {
+      if (listenerHandle && typeof listenerHandle.remove === 'function') {
+        listenerHandle.remove();
+      }
+    };
+  }, [settings.autoSmsDetection, categories, locations, incomeSources]);
 
   // ==========================================
   // REAL-TIME BALANCE COMPUTATION ENGINE
@@ -1351,6 +1727,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedTransaction,
         notificationCenterOpen,
         setNotificationCenterOpen,
+
+        // Split with Friends (Kanakku Sharing)
+        splitFriends,
+        splitGroups,
+        splitExpenses,
+        splitSettlements,
+        friendBalances,
+        totalYouAreOwed,
+        totalYouOwe,
+        netSplitBalance,
+        isAddSplitExpenseOpen,
+        setIsAddSplitExpenseOpen,
+        settleUpModalData,
+        setSettleUpModalData,
+        newFriendModalOpen,
+        setNewFriendModalOpen,
+        newGroupModalOpen,
+        setNewGroupModalOpen,
+        addSplitExpense,
+        deleteSplitExpense,
+        settleSplitDebt,
+        addSplitFriend,
+        updateSplitFriend,
+        deleteSplitFriend,
+        addSplitGroup,
+        updateSplitGroup,
+        deleteSplitGroup,
+
+        isAutoSmsModalOpen,
+        setIsAutoSmsModalOpen,
+        pendingSmsNotification,
+        setPendingSmsNotification,
+        pendingEditSms,
+        setPendingEditSms,
+
+        isReceiptScannerOpen,
+        setIsReceiptScannerOpen,
+        pendingReceiptData,
+        setPendingReceiptData,
 
         isCloudSynced,
         cloudSyncStatus,

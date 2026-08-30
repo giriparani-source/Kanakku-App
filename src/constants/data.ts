@@ -221,3 +221,93 @@ export const INITIAL_BUDGETS: CategoryBudget[] = [
   { category: 'Entertainment', limit: 3000 },
   { category: 'Health & Medical', limit: 3000 },
 ];
+
+export const DEFAULT_SPLIT_FRIENDS = [
+  {
+    id: 'friend-rahul',
+    name: 'Rahul Sharma',
+    phone: '+91 98765 43210',
+    upiId: 'rahulsharma@okhdfcbank',
+    avatarUrl: '',
+    color: '#3B82F6',
+  },
+  {
+    id: 'friend-priya',
+    name: 'Priya Nair',
+    phone: '+91 98450 11223',
+    upiId: 'priyanair@okaxis',
+    avatarUrl: '',
+    color: '#EC4899',
+  },
+  {
+    id: 'friend-karthik',
+    name: 'Karthik Raj',
+    phone: '+91 97100 88990',
+    upiId: 'karthikraj@paytm',
+    avatarUrl: '',
+    color: '#10B981',
+  },
+];
+
+export const DEFAULT_SPLIT_GROUPS = [
+  {
+    id: 'group-goa',
+    name: 'Goa Trip 🏖️',
+    icon: 'beach_access',
+    color: '#06B6D4',
+    memberIds: ['user', 'friend-rahul', 'friend-priya', 'friend-karthik'],
+    createdAt: Date.now() - 86400000 * 5,
+  },
+  {
+    id: 'group-flat',
+    name: 'Flat 302 Roommates 🏠',
+    icon: 'apartment',
+    color: '#F59E0B',
+    memberIds: ['user', 'friend-rahul', 'friend-karthik'],
+    createdAt: Date.now() - 86400000 * 30,
+  },
+];
+
+export const DEFAULT_SPLIT_EXPENSES = [
+  {
+    id: 'split-exp-1',
+    groupId: 'group-goa',
+    description: 'Beach Shack Seafood Dinner',
+    totalAmount: 3600,
+    category: 'Food & Dining',
+    date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
+    time: '08:30 PM',
+    paidBy: 'user', // Paid by user
+    splitType: 'equal' as const,
+    shares: [
+      { memberId: 'user', amount: 900, hasSettled: true },
+      { memberId: 'friend-rahul', amount: 900, hasSettled: false },
+      { memberId: 'friend-priya', amount: 900, hasSettled: false },
+      { memberId: 'friend-karthik', amount: 900, hasSettled: false },
+    ],
+    settled: false,
+    notes: 'Goa beachfront restaurant with fresh seafood',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'split-exp-2',
+    groupId: 'group-goa',
+    description: 'Scuba Diving & Boat Ride',
+    totalAmount: 4800,
+    category: 'Entertainment',
+    date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+    time: '11:00 AM',
+    paidBy: 'friend-rahul', // Paid by Rahul
+    splitType: 'equal' as const,
+    shares: [
+      { memberId: 'user', amount: 1200, hasSettled: false },
+      { memberId: 'friend-rahul', amount: 1200, hasSettled: true },
+      { memberId: 'friend-priya', amount: 1200, hasSettled: false },
+      { memberId: 'friend-karthik', amount: 1200, hasSettled: false },
+    ],
+    settled: false,
+    notes: 'Grand Island water sports package',
+    createdAt: Date.now() - 86400000,
+  },
+];
+

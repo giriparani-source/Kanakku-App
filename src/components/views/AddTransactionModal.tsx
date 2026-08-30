@@ -25,6 +25,12 @@ export const AddTransactionModal: React.FC = () => {
     getLocationBalance,
     formatMoney,
     showToast,
+    pendingEditSms,
+    setPendingEditSms,
+    isReceiptScannerOpen,
+    setIsReceiptScannerOpen,
+    pendingReceiptData,
+    setPendingReceiptData,
   } = useApp();
 
   const [activeType, setActiveType] = useState<TransactionType>('expense');
@@ -68,6 +74,64 @@ export const AddTransactionModal: React.FC = () => {
   const [reviewNeedWant, setReviewNeedWant] = useState<NeedWantType>('Need');
   const [reviewRawText, setReviewRawText] = useState<string>('');
   // ─────────────────────────────────────────────────────────────────────────────
+
+  // Handle prefill from Bank SMS Edit
+  useEffect(() => {
+    if (pendingEditSms && isAddModalOpen) {
+      setActiveType(pendingEditSms.type);
+      if (pendingEditSms.amount) {
+        setAmountStr(pendingEditSms.amount.toString());
+      }
+      if (pendingEditSms.type === 'expense') {
+        setDescription(pendingEditSms.merchant || '');
+        setSelectedCategory(pendingEditSms.categoryName || '');
+        setNeedWant(pendingEditSms.needWant || 'Need');
+        if (pendingEditSms.locationId) setExpenseLocationId(pendingEditSms.locationId);
+      } else if (pendingEditSms.type === 'income') {
+        setSelectedSource(pendingEditSms.sourceName || pendingEditSms.merchant || '');
+        if (pendingEditSms.locationId) setIncomeLocationId(pendingEditSms.locationId);
+      } else {
+        setTransferType(pendingEditSms.transferType || 'transfer');
+        if (pendingEditSms.locationId) {
+          setFromLocationId(pendingEditSms.locationId);
+          setToLocationId(pendingEditSms.locationId);
+          setSingleLocationId(pendingEditSms.locationId);
+        }
+      }
+      setNotes(`Auto SMS: ${pendingEditSms.bankName || 'Bank'}${pendingEditSms.referenceNumber ? ` (Ref: ${pendingEditSms.referenceNumber})` : ''}`);
+      setPendingEditSms(null);
+    }
+  }, [pendingEditSms, isAddModalOpen]);
+
+  // Handle prefill from Receipt Scanner OCR
+  useEffect(() => {
+    if (pendingReceiptData && isAddModalOpen) {
+      setActiveType('expense');
+      setAmountStr(pendingReceiptData.totalAmount.toString());
+      setDescription(pendingReceiptData.merchantName || 'Supermarket Receipt');
+      setSelectedCategory(pendingReceiptData.primaryCategory || categories[0]?.name || 'Food & Dining');
+      setNeedWant(pendingReceiptData.primaryNeedWant || 'Need');
+      if (pendingReceiptData.locationId) {
+        setExpenseLocationId(pendingReceiptData.locationId);
+      }
+
+      const selectedItems = pendingReceiptData.items.filter((it) => it.selected !== false);
+      const itemsSummary = selectedItems
+        .map((it) => `• ${it.name} (x${it.quantity || 1}) - ${formatMoney(it.totalPrice)} [${it.needWant}]`)
+        .join('\n');
+
+      const billNotes = [
+        `Receipt: ${pendingReceiptData.merchantName}`,
+        pendingReceiptData.billNumber ? `Bill #${pendingReceiptData.billNumber}` : '',
+        `\nItemized Breakdown:\n${itemsSummary}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      setNotes(billNotes);
+      setPendingReceiptData(null);
+    }
+  }, [pendingReceiptData, isAddModalOpen]);
 
   // Initialize dropdown defaults
   useEffect(() => {
@@ -191,15 +255,31 @@ export const AddTransactionModal: React.FC = () => {
     setReviewRawText('');
   };
 
-  const startVoiceInput = () => {
+  const startVoiceInput = async () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showToast('Voice input is not supported in this browser. Please type manually.');
+      showToast('Voice input is not supported on this device. Please use Smart Text or type manually.');
       return;
     }
 
+    // Explicitly prompt for mic permission via getUserMedia if needed
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (mediaErr: any) {
+        console.warn('Microphone permission pre-check:', mediaErr);
+        if (mediaErr?.name === 'NotAllowedError' || mediaErr?.name === 'PermissionDeniedError') {
+          showToast('Microphone access denied. Please allow Microphone permission in Settings.');
+          return;
+        }
+      }
+    }
+
     try {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
+      }
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
       recognition.continuous = false;
@@ -224,7 +304,16 @@ export const AddTransactionModal: React.FC = () => {
 
       recognition.onerror = (event: any) => {
         setIsListening(false);
-        showToast(`Voice input error: ${event.error}`);
+        const err = event.error;
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          showToast('Microphone access denied. Please grant Microphone permission in Phone Settings.');
+        } else if (err === 'no-speech') {
+          showToast('No speech detected. Please speak clearly into the mic.');
+        } else if (err === 'network') {
+          showToast('Network error during voice recognition. Please check your internet connection.');
+        } else {
+          showToast(`Voice recognition error: ${err}`);
+        }
       };
 
       recognition.onend = () => {
@@ -232,9 +321,10 @@ export const AddTransactionModal: React.FC = () => {
       };
 
       recognition.start();
-    } catch {
+    } catch (err: any) {
+      console.error('Error starting speech recognition:', err);
       setIsListening(false);
-      showToast('Could not initialize microphone.');
+      showToast('Could not access microphone. Please check app permissions.');
     }
   };
 
@@ -537,22 +627,38 @@ export const AddTransactionModal: React.FC = () => {
               </h2>
             </div>
 
-            {/* Voice Input Button */}
-            <button
-              type="button"
-              onClick={isListening ? stopVoiceInput : startVoiceInput}
-              title={isListening ? 'Stop Listening' : 'Voice Input (Tanglish / English / Tamil)'}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all cursor-pointer ${
-                isListening
-                  ? 'bg-[#FF2D55] text-white animate-pulse shadow-md shadow-rose-500/30'
-                  : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95'
-              }`}
-            >
-              <span className="material-symbols-outlined text-lg font-black">
-                {isListening ? 'mic' : 'mic_none'}
-              </span>
-              <span>{isListening ? 'Listening...' : 'Smart Voice'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Scan Bill OCR Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (isListening) stopVoiceInput();
+                  setIsReceiptScannerOpen(true);
+                }}
+                title="Scan Supermarket or Restaurant Bill (Gemini Vision OCR)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-all cursor-pointer active:scale-95"
+              >
+                <span className="material-symbols-outlined text-lg font-black">document_scanner</span>
+                <span className="hidden sm:inline">Scan Bill</span>
+              </button>
+
+              {/* Voice Input Button */}
+              <button
+                type="button"
+                onClick={isListening ? stopVoiceInput : startVoiceInput}
+                title={isListening ? 'Stop Listening' : 'Voice Input (Tanglish / English / Tamil)'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  isListening
+                    ? 'bg-[#FF2D55] text-white animate-pulse shadow-md shadow-rose-500/30'
+                    : 'bg-[#F4F5F7] dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-black dark:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95'
+                }`}
+              >
+                <span className="material-symbols-outlined text-lg font-black">
+                  {isListening ? 'mic' : 'mic_none'}
+                </span>
+                <span>{isListening ? 'Listening...' : 'Smart Voice'}</span>
+              </button>
+            </div>
           </header>
 
           {/* Live Voice Banner */}

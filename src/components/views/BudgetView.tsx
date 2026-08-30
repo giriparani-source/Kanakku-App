@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ExpenseTransaction } from '../../types';
+import { CalculatorsView } from './budget/CalculatorsView';
 
 export const BudgetView: React.FC = () => {
   const {
@@ -14,6 +15,7 @@ export const BudgetView: React.FC = () => {
     totalSavings,
   } = useApp();
 
+  const [activeSection, setActiveSection] = useState<'budget' | 'calculators'>('budget');
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [newLimitStr, setNewLimitStr] = useState<string>('');
 
@@ -49,17 +51,54 @@ export const BudgetView: React.FC = () => {
 
   return (
     <main className="max-w-3xl mx-auto px-4 md:px-0 py-6 space-y-6 pb-28 md:pb-12 animate-fadeIn text-black dark:text-white">
-      {/* Title */}
-      <div>
-        <h1 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight">
-          Budget Envelopes & 50/30/20 Rule
-        </h1>
-        <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400 mt-1">
-          Plan limits and balance your psychological spending allocation.
-        </p>
+      {/* Title & Section Toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-black text-black dark:text-white tracking-tight">
+            {activeSection === 'budget' ? 'Budget Envelopes & 50/30/20' : 'EMI & Wealth Calculators'}
+          </h1>
+          <p className="text-xs md:text-sm font-bold text-neutral-600 dark:text-neutral-400 mt-1">
+            {activeSection === 'budget'
+              ? 'Plan limits and balance your psychological spending allocation.'
+              : 'Calculate Loan EMIs, SIP Wealth Projections, and Goal Savings.'}
+          </p>
+        </div>
+
+        {/* Section Switcher */}
+        <div className="flex bg-[#F4F5F7] dark:bg-[#141B2A] p-1.5 rounded-2xl border border-neutral-200 dark:border-[#243048]">
+          <button
+            type="button"
+            onClick={() => setActiveSection('budget')}
+            className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+              activeSection === 'budget'
+                ? 'bg-white dark:bg-[#243048] text-black dark:text-white shadow-sm'
+                : 'text-neutral-500 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">account_balance_wallet</span>
+            Budget Envelopes
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('calculators')}
+            className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+              activeSection === 'calculators'
+                ? 'bg-white dark:bg-[#243048] text-black dark:text-white shadow-sm'
+                : 'text-neutral-500 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">calculate</span>
+            Calculators
+          </button>
+        </div>
       </div>
 
-      {/* 50/30/20 Framework Card */}
+      {activeSection === 'calculators' ? (
+        <CalculatorsView />
+      ) : (
+        <>
+          {/* 50/30/20 Framework Card */}
       <section className="bg-[#F4F5F7] dark:bg-[#141B2A] border border-neutral-200 dark:border-[#243048] rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex justify-between items-center">
           <h2 className="text-sm font-black uppercase tracking-wider text-black dark:text-white">
@@ -215,6 +254,8 @@ export const BudgetView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </main>
   );

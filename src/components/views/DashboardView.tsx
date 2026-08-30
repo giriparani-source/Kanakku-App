@@ -31,6 +31,8 @@ export const DashboardView: React.FC = () => {
     showToast,
     setSelectedTransaction,
     setIsAddModalOpen,
+    setIsAutoSmsModalOpen,
+    setIsReceiptScannerOpen,
     loadMoreTransactions,
     hasMoreTransactions,
     isLoadingMoreTransactions,
@@ -104,13 +106,32 @@ export const DashboardView: React.FC = () => {
             <span className="material-symbols-outlined text-base">account_balance_wallet</span>
             <span>Real-Time Balances Across Locations</span>
           </h2>
-          <button
-            type="button"
-            onClick={() => setIsAddModalOpen(true)}
-            className="text-xs font-black text-[#0066FF] dark:text-[#60A5FA] hover:underline cursor-pointer"
-          >
-            + Log Transaction
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsReceiptScannerOpen(true)}
+              className="text-xs font-black text-blue-500 hover:text-blue-600 flex items-center gap-1 cursor-pointer"
+              title="Scan Bill / Receipt (Vision OCR)"
+            >
+              <span className="material-symbols-outlined text-sm font-black">document_scanner</span>
+              <span>Scan Bill</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAutoSmsModalOpen(true)}
+              className="text-xs font-black text-amber-500 hover:text-amber-600 flex items-center gap-1 cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm font-black">bolt</span>
+              <span>Auto SMS</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(true)}
+              className="text-xs font-black text-[#0066FF] dark:text-[#60A5FA] hover:underline cursor-pointer"
+            >
+              + Log
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

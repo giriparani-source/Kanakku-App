@@ -109,11 +109,78 @@ export interface AppSettings {
   biometricLock: boolean;
   pinCode: string; // 4-digit PIN
   isPinLockEnabled: boolean; // toggle choice for app security
+  autoSmsDetection?: boolean; // toggle for auto bank SMS transaction detection
   userId?: string;
 }
 
 export interface CategoryBudget {
   category: string;
   limit: number;
+  userId?: string;
+}
+
+export interface RawSmsMessage {
+  id: string;
+  sender: string;
+  body: string;
+  date: string;
+  timestamp: number;
+}
+
+// ==========================================
+// SPLIT WITH FRIENDS (KANAKKU SHARING)
+// ==========================================
+export interface SplitFriend {
+  id: string;
+  name: string;
+  phone?: string;
+  upiId?: string;
+  avatarUrl?: string;
+  color?: string;
+  userId?: string;
+}
+
+export interface SplitGroup {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  memberIds: string[]; // List of friend IDs + 'user'
+  createdAt: number;
+  userId?: string;
+}
+
+export interface SplitMemberShare {
+  memberId: string; // 'user' or friend.id
+  amount: number;
+  hasSettled?: boolean;
+}
+
+export interface SplitExpense {
+  id: string;
+  groupId?: string; // Optional: associated group
+  description: string;
+  totalAmount: number;
+  category: string;
+  date: string; // YYYY-MM-DD
+  time?: string;
+  paidBy: string; // 'user' or friend.id
+  splitType: 'equal' | 'exact' | 'percentage';
+  shares: SplitMemberShare[];
+  settled: boolean;
+  notes?: string;
+  createdAt: number;
+  userId?: string;
+}
+
+export interface SplitSettlement {
+  id: string;
+  fromMemberId: string;
+  toMemberId: string;
+  amount: number;
+  date: string;
+  paymentMode: 'upi' | 'cash' | 'other';
+  referenceNote?: string;
+  createdAt: number;
   userId?: string;
 }

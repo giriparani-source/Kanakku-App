@@ -21,24 +21,54 @@ import {
 // They are only downloaded when the user navigates to that tab.
 const DashboardView     = lazy(() => import('./components/views/DashboardView').then(m => ({ default: m.DashboardView })));
 const InsightsView      = lazy(() => import('./components/views/InsightsView').then(m => ({ default: m.InsightsView })));
+const SplitView         = lazy(() => import('./components/views/SplitView').then(m => ({ default: m.SplitView })));
 const BudgetView        = lazy(() => import('./components/views/BudgetView').then(m => ({ default: m.BudgetView })));
 const ProfileView       = lazy(() => import('./components/views/ProfileView').then(m => ({ default: m.ProfileView })));
 const SettingsView      = lazy(() => import('./components/views/SettingsView').then(m => ({ default: m.SettingsView })));
 const OnboardingView    = lazy(() => import('./components/views/OnboardingView').then(m => ({ default: m.OnboardingView })));
 
 // ─── Lazy-loaded modals ───────────────────────────────────────────────────────
-// Modals are always rendered in the DOM (visibility controlled via context state),
-// but their JS is only fetched after the main shell loads.
 const AddTransactionModal    = lazy(() => import('./components/views/AddTransactionModal').then(m => ({ default: m.AddTransactionModal })));
 const TransactionDetailModal = lazy(() => import('./components/modals/TransactionDetailModal').then(m => ({ default: m.TransactionDetailModal })));
 const LinkAccountModal       = lazy(() => import('./components/modals/LinkAccountModal').then(m => ({ default: m.LinkAccountModal })));
 const NotificationCenterModal = lazy(() => import('./components/modals/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
 const PinLockScreen          = lazy(() => import('./components/modals/PinLockScreen').then(m => ({ default: m.PinLockScreen })));
+const AutoSmsModal           = lazy(() => import('./components/modals/AutoSmsModal').then(m => ({ default: m.AutoSmsModal })));
+const ReceiptScannerModal    = lazy(() => import('./components/modals/ReceiptScannerModal').then(m => ({ default: m.ReceiptScannerModal })));
+const AddSplitExpenseModal   = lazy(() => import('./components/modals/AddSplitExpenseModal').then(m => ({ default: m.AddSplitExpenseModal })));
+const SettleUpModal          = lazy(() => import('./components/modals/SettleUpModal').then(m => ({ default: m.SettleUpModal })));
+const NewFriendModal         = lazy(() => import('./components/modals/NewFriendModal').then(m => ({ default: m.NewFriendModal })));
+const NewGroupModal          = lazy(() => import('./components/modals/NewGroupModal').then(m => ({ default: m.NewGroupModal })));
+import { SmsReviewBanner }   from './components/modals/SmsReviewBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AppContent: React.FC = () => {
-  const { activeTab, toastMessage, isOnboarded, settings, isAppUnlocked, isAuthLoading } = useApp();
+  const {
+    activeTab,
+    toastMessage,
+    isOnboarded,
+    settings,
+    isAppUnlocked,
+    isAuthLoading,
+    isAutoSmsModalOpen,
+    setIsAutoSmsModalOpen,
+    pendingSmsNotification,
+    setPendingSmsNotification,
+    setIsAddModalOpen,
+    setPendingEditSms,
+    isReceiptScannerOpen,
+    setIsReceiptScannerOpen,
+    setPendingReceiptData,
+    isAddSplitExpenseOpen,
+    setIsAddSplitExpenseOpen,
+    settleUpModalData,
+    setSettleUpModalData,
+    newFriendModalOpen,
+    setNewFriendModalOpen,
+    newGroupModalOpen,
+    setNewGroupModalOpen,
+  } = useApp();
   const [isLinkAccountOpen, setIsLinkAccountOpen] = useState(false);
 
   // If Firebase Auth is still resolving initial session, show sleek loading indicator
@@ -92,6 +122,8 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'insights':
         return <InsightsView />;
+      case 'split':
+        return <SplitView />;
       case 'budget':
         return <BudgetView />;
       case 'profile':
@@ -108,6 +140,8 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'insights':
         return <InsightsSkeleton />;
+      case 'split':
+        return <ViewSkeleton title="Split with Friends" />;
       case 'budget':
         return <ViewSkeleton title="Budget & Goals" />;
       case 'profile':
@@ -137,6 +171,19 @@ const AppContent: React.FC = () => {
       {/* Bottom Nav / Desktop Action — always eager-loaded */}
       <BottomNav />
 
+      {/* Real-Time Incoming Bank SMS 1-Tap Floating Banner */}
+      {pendingSmsNotification && (
+        <SmsReviewBanner
+          parsedSms={pendingSmsNotification}
+          onDismiss={() => setPendingSmsNotification(null)}
+          onOpenEditModal={(parsed) => {
+            setPendingEditSms(parsed);
+            setPendingSmsNotification(null);
+            setIsAddModalOpen(true);
+          }}
+        />
+      )}
+
       {/* Modals — single Suspense boundary covers all modals together */}
       <Suspense fallback={null}>
         <AddTransactionModal />
@@ -146,6 +193,42 @@ const AppContent: React.FC = () => {
           onClose={() => setIsLinkAccountOpen(false)}
         />
         <NotificationCenterModal />
+        <AutoSmsModal
+          isOpen={isAutoSmsModalOpen}
+          onClose={() => setIsAutoSmsModalOpen(false)}
+          onSelectForEdit={(parsed) => {
+            setPendingEditSms(parsed);
+            setIsAddModalOpen(true);
+          }}
+        />
+        <ReceiptScannerModal
+          isOpen={isReceiptScannerOpen}
+          onClose={() => setIsReceiptScannerOpen(false)}
+          onSelectForEdit={(receipt) => {
+            setPendingReceiptData(receipt);
+            setIsAddModalOpen(true);
+          }}
+        />
+        <AddSplitExpenseModal
+          isOpen={isAddSplitExpenseOpen}
+          onClose={() => setIsAddSplitExpenseOpen(false)}
+        />
+        {settleUpModalData && (
+          <SettleUpModal
+            isOpen={Boolean(settleUpModalData)}
+            onClose={() => setSettleUpModalData(null)}
+            friendId={settleUpModalData.friendId}
+            defaultAmount={settleUpModalData.defaultAmount}
+          />
+        )}
+        <NewFriendModal
+          isOpen={newFriendModalOpen}
+          onClose={() => setNewFriendModalOpen(false)}
+        />
+        <NewGroupModal
+          isOpen={newGroupModalOpen}
+          onClose={() => setNewGroupModalOpen(false)}
+        />
       </Suspense>
 
       {/* Toast Notification Alert */}
