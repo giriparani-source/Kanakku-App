@@ -8,7 +8,6 @@ export const TopBar: React.FC = () => {
     profile,
     notifications,
     setNotificationCenterOpen,
-    setIsAutoSmsModalOpen,
     settings,
     updateSettings,
     cloudSyncStatus,
@@ -115,17 +114,6 @@ export const TopBar: React.FC = () => {
 
         {/* Right side controls */}
         <div className="flex items-center gap-3">
-          {/* Quick Bank SMS Scanner Button */}
-          <button
-            onClick={() => setIsAutoSmsModalOpen(true)}
-            aria-label="Bank SMS Scanner"
-            title="Scan Bank SMS (1-Tap Add)"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all text-xs font-black cursor-pointer active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px] font-black">bolt</span>
-            <span>Auto SMS</span>
-          </button>
-
           {/* Quick Dark Mode Toggle Button in Header */}
           <button
             onClick={toggleDarkMode}
@@ -187,15 +175,6 @@ export const TopBar: React.FC = () => {
         </h1>
 
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setIsAutoSmsModalOpen(true)}
-            aria-label="Auto SMS Scanner"
-            title="Scan Bank SMS"
-            className="p-2 text-amber-500 rounded-full active:scale-95 transition-transform bg-amber-500/10 border border-amber-500/20 cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[20px] font-black">bolt</span>
-          </button>
-
           <button
             onClick={toggleDarkMode}
             aria-label="Toggle Dark Mode"

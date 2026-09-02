@@ -41,17 +41,7 @@ import {
   DEFAULT_SPLIT_GROUPS,
   DEFAULT_SPLIT_EXPENSES,
 } from '../constants/data';
-import { ParsedSmsResult, parseBankSmsRegex } from '../utils/smsParser';
-import { ParsedReceiptResult, processOfflineReceiptQueue } from '../utils/receiptOcr';
-import {
-  isNativeAndroid,
-  checkSmsPermissions,
-  SmsReader,
-  getProcessedSmsIds,
-  getDismissedSmsIds,
-  hashSmsMessage,
-  initWebSmsAutoListener,
-} from '../services/smsService';
+
 import {
   subscribeToProfile,
   subscribeToSettings,
@@ -117,20 +107,6 @@ interface AppContextType {
   addSplitGroup: (group: Omit<SplitGroup, 'id' | 'createdAt'>) => Promise<void>;
   updateSplitGroup: (id: string, updates: Partial<SplitGroup>) => Promise<void>;
   deleteSplitGroup: (id: string) => Promise<void>;
-
-  // Auto Bank SMS Detection
-  isAutoSmsModalOpen: boolean;
-  setIsAutoSmsModalOpen: (open: boolean) => void;
-  pendingSmsNotification: ParsedSmsResult | null;
-  setPendingSmsNotification: (sms: ParsedSmsResult | null) => void;
-  pendingEditSms: ParsedSmsResult | null;
-  setPendingEditSms: (sms: ParsedSmsResult | null) => void;
-
-  // Bill & Receipt Scanner (Gemini Vision OCR)
-  isReceiptScannerOpen: boolean;
-  setIsReceiptScannerOpen: (open: boolean) => void;
-  pendingReceiptData: ParsedReceiptResult | null;
-  setPendingReceiptData: (receipt: ParsedReceiptResult | null) => void;
 
   // Cloud Sync Status
   isCloudSynced: boolean;
@@ -333,15 +309,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [settleUpModalData, setSettleUpModalData] = useState<{ friendId: string; defaultAmount?: number } | null>(null);
   const [newFriendModalOpen, setNewFriendModalOpen] = useState<boolean>(false);
   const [newGroupModalOpen, setNewGroupModalOpen] = useState<boolean>(false);
-
-  // Auto Bank SMS States
-  const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState<boolean>(false);
-  const [pendingSmsNotification, setPendingSmsNotification] = useState<ParsedSmsResult | null>(null);
-  const [pendingEditSms, setPendingEditSms] = useState<ParsedSmsResult | null>(null);
-
-  // Bill & Receipt Scanner (Gemini Vision OCR)
-  const [isReceiptScannerOpen, setIsReceiptScannerOpen] = useState<boolean>(false);
-  const [pendingReceiptData, setPendingReceiptData] = useState<ParsedReceiptResult | null>(null);
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -1754,18 +1721,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSplitGroup,
         updateSplitGroup,
         deleteSplitGroup,
-
-        isAutoSmsModalOpen,
-        setIsAutoSmsModalOpen,
-        pendingSmsNotification,
-        setPendingSmsNotification,
-        pendingEditSms,
-        setPendingEditSms,
-
-        isReceiptScannerOpen,
-        setIsReceiptScannerOpen,
-        pendingReceiptData,
-        setPendingReceiptData,
 
         isCloudSynced,
         cloudSyncStatus,

@@ -31,8 +31,6 @@ export const DashboardView: React.FC = () => {
     showToast,
     setSelectedTransaction,
     setIsAddModalOpen,
-    setIsAutoSmsModalOpen,
-    setIsReceiptScannerOpen,
     loadMoreTransactions,
     hasMoreTransactions,
     isLoadingMoreTransactions,
@@ -107,23 +105,6 @@ export const DashboardView: React.FC = () => {
             <span>Real-Time Balances Across Locations</span>
           </h2>
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setIsReceiptScannerOpen(true)}
-              className="text-xs font-black text-blue-500 hover:text-blue-600 flex items-center gap-1 cursor-pointer"
-              title="Scan Bill / Receipt (Vision OCR)"
-            >
-              <span className="material-symbols-outlined text-sm font-black">document_scanner</span>
-              <span>Scan Bill</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsAutoSmsModalOpen(true)}
-              className="text-xs font-black text-amber-500 hover:text-amber-600 flex items-center gap-1 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-sm font-black">bolt</span>
-              <span>Auto SMS</span>
-            </button>
             <button
               type="button"
               onClick={() => setIsAddModalOpen(true)}

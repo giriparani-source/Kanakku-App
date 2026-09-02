@@ -25,12 +25,6 @@ export const AddTransactionModal: React.FC = () => {
     getLocationBalance,
     formatMoney,
     showToast,
-    pendingEditSms,
-    setPendingEditSms,
-    isReceiptScannerOpen,
-    setIsReceiptScannerOpen,
-    pendingReceiptData,
-    setPendingReceiptData,
   } = useApp();
 
   const [activeType, setActiveType] = useState<TransactionType>('expense');
@@ -74,64 +68,6 @@ export const AddTransactionModal: React.FC = () => {
   const [reviewNeedWant, setReviewNeedWant] = useState<NeedWantType>('Need');
   const [reviewRawText, setReviewRawText] = useState<string>('');
   // ─────────────────────────────────────────────────────────────────────────────
-
-  // Handle prefill from Bank SMS Edit
-  useEffect(() => {
-    if (pendingEditSms && isAddModalOpen) {
-      setActiveType(pendingEditSms.type);
-      if (pendingEditSms.amount) {
-        setAmountStr(pendingEditSms.amount.toString());
-      }
-      if (pendingEditSms.type === 'expense') {
-        setDescription(pendingEditSms.merchant || '');
-        setSelectedCategory(pendingEditSms.categoryName || '');
-        setNeedWant(pendingEditSms.needWant || 'Need');
-        if (pendingEditSms.locationId) setExpenseLocationId(pendingEditSms.locationId);
-      } else if (pendingEditSms.type === 'income') {
-        setSelectedSource(pendingEditSms.sourceName || pendingEditSms.merchant || '');
-        if (pendingEditSms.locationId) setIncomeLocationId(pendingEditSms.locationId);
-      } else {
-        setTransferType(pendingEditSms.transferType || 'transfer');
-        if (pendingEditSms.locationId) {
-          setFromLocationId(pendingEditSms.locationId);
-          setToLocationId(pendingEditSms.locationId);
-          setSingleLocationId(pendingEditSms.locationId);
-        }
-      }
-      setNotes(`Auto SMS: ${pendingEditSms.bankName || 'Bank'}${pendingEditSms.referenceNumber ? ` (Ref: ${pendingEditSms.referenceNumber})` : ''}`);
-      setPendingEditSms(null);
-    }
-  }, [pendingEditSms, isAddModalOpen]);
-
-  // Handle prefill from Receipt Scanner OCR
-  useEffect(() => {
-    if (pendingReceiptData && isAddModalOpen) {
-      setActiveType('expense');
-      setAmountStr(pendingReceiptData.totalAmount.toString());
-      setDescription(pendingReceiptData.merchantName || 'Supermarket Receipt');
-      setSelectedCategory(pendingReceiptData.primaryCategory || categories[0]?.name || 'Food & Dining');
-      setNeedWant(pendingReceiptData.primaryNeedWant || 'Need');
-      if (pendingReceiptData.locationId) {
-        setExpenseLocationId(pendingReceiptData.locationId);
-      }
-
-      const selectedItems = pendingReceiptData.items.filter((it) => it.selected !== false);
-      const itemsSummary = selectedItems
-        .map((it) => `• ${it.name} (x${it.quantity || 1}) - ${formatMoney(it.totalPrice)} [${it.needWant}]`)
-        .join('\n');
-
-      const billNotes = [
-        `Receipt: ${pendingReceiptData.merchantName}`,
-        pendingReceiptData.billNumber ? `Bill #${pendingReceiptData.billNumber}` : '',
-        `\nItemized Breakdown:\n${itemsSummary}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      setNotes(billNotes);
-      setPendingReceiptData(null);
-    }
-  }, [pendingReceiptData, isAddModalOpen]);
 
   // Initialize dropdown defaults
   useEffect(() => {
@@ -628,20 +564,6 @@ export const AddTransactionModal: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Scan Bill OCR Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (isListening) stopVoiceInput();
-                  setIsReceiptScannerOpen(true);
-                }}
-                title="Scan Supermarket or Restaurant Bill (Gemini Vision OCR)"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-all cursor-pointer active:scale-95"
-              >
-                <span className="material-symbols-outlined text-lg font-black">document_scanner</span>
-                <span className="hidden sm:inline">Scan Bill</span>
-              </button>
-
               {/* Voice Input Button */}
               <button
                 type="button"

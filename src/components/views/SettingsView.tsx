@@ -29,7 +29,6 @@ export const SettingsView: React.FC = () => {
     cloudSyncStatus,
     exportBackupData,
     importBackupData,
-    setIsAutoSmsModalOpen,
   } = useApp();
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -932,41 +931,6 @@ export const SettingsView: React.FC = () => {
                   />
                   <div className="w-11 h-6 bg-neutral-300 dark:bg-neutral-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#00C853]"></div>
                 </label>
-              </div>
-
-              {/* Auto Bank SMS Transaction Detection */}
-              <div className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 flex items-center justify-center text-amber-500">
-                    <span className="material-symbols-outlined text-xl font-black">bolt</span>
-                  </div>
-                  <div>
-                    <span className="text-sm font-black text-black dark:text-white block">
-                      Auto Bank SMS Detection (1-Tap Add)
-                    </span>
-                    <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                      Detect bank transaction SMS & quick-add
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsAutoSmsModalOpen(true)}
-                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] font-black transition cursor-pointer"
-                  >
-                    Scan Inbox
-                  </button>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.autoSmsDetection !== false}
-                      onChange={(e) => updateSettings({ autoSmsDetection: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-neutral-300 dark:bg-neutral-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#00C853]"></div>
-                  </label>
-                </div>
               </div>
             </div>
           </div>

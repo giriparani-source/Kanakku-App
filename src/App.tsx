@@ -32,9 +32,6 @@ const TransactionDetailModal = lazy(() => import('./components/modals/Transactio
 const LinkAccountModal       = lazy(() => import('./components/modals/LinkAccountModal').then(m => ({ default: m.LinkAccountModal })));
 const NotificationCenterModal = lazy(() => import('./components/modals/NotificationCenterModal').then(m => ({ default: m.NotificationCenterModal })));
 const PinLockScreen          = lazy(() => import('./components/modals/PinLockScreen').then(m => ({ default: m.PinLockScreen })));
-const AutoSmsModal           = lazy(() => import('./components/modals/AutoSmsModal').then(m => ({ default: m.AutoSmsModal })));
-const ReceiptScannerModal    = lazy(() => import('./components/modals/ReceiptScannerModal').then(m => ({ default: m.ReceiptScannerModal })));
-import { SmsReviewBanner }   from './components/modals/SmsReviewBanner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -46,15 +43,6 @@ const AppContent: React.FC = () => {
     settings,
     isAppUnlocked,
     isAuthLoading,
-    isAutoSmsModalOpen,
-    setIsAutoSmsModalOpen,
-    pendingSmsNotification,
-    setPendingSmsNotification,
-    setIsAddModalOpen,
-    setPendingEditSms,
-    isReceiptScannerOpen,
-    setIsReceiptScannerOpen,
-    setPendingReceiptData,
   } = useApp();
   const [isLinkAccountOpen, setIsLinkAccountOpen] = useState(false);
 
@@ -156,19 +144,6 @@ const AppContent: React.FC = () => {
       {/* Bottom Nav / Desktop Action — always eager-loaded */}
       <BottomNav />
 
-      {/* Real-Time Incoming Bank SMS 1-Tap Floating Banner */}
-      {pendingSmsNotification && (
-        <SmsReviewBanner
-          parsedSms={pendingSmsNotification}
-          onDismiss={() => setPendingSmsNotification(null)}
-          onOpenEditModal={(parsed) => {
-            setPendingEditSms(parsed);
-            setPendingSmsNotification(null);
-            setIsAddModalOpen(true);
-          }}
-        />
-      )}
-
       {/* Modals — single Suspense boundary covers all modals together */}
       <Suspense fallback={null}>
         <AddTransactionModal />
@@ -178,22 +153,6 @@ const AppContent: React.FC = () => {
           onClose={() => setIsLinkAccountOpen(false)}
         />
         <NotificationCenterModal />
-        <AutoSmsModal
-          isOpen={isAutoSmsModalOpen}
-          onClose={() => setIsAutoSmsModalOpen(false)}
-          onSelectForEdit={(parsed) => {
-            setPendingEditSms(parsed);
-            setIsAddModalOpen(true);
-          }}
-        />
-        <ReceiptScannerModal
-          isOpen={isReceiptScannerOpen}
-          onClose={() => setIsReceiptScannerOpen(false)}
-          onSelectForEdit={(receipt) => {
-            setPendingReceiptData(receipt);
-            setIsAddModalOpen(true);
-          }}
-        />
 
       </Suspense>
 
