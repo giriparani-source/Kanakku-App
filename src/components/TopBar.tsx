@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { AndroidDownloadButton, AndroidSmartBanner } from './AndroidSmartBanner';
 
 export const TopBar: React.FC = () => {
   const {
@@ -114,6 +115,9 @@ export const TopBar: React.FC = () => {
 
         {/* Right side controls */}
         <div className="flex items-center gap-3">
+          {/* Download Android App (APK) Gradient CTA Button */}
+          <AndroidDownloadButton />
+
           {/* Quick Dark Mode Toggle Button in Header */}
           <button
             onClick={toggleDarkMode}
@@ -151,8 +155,12 @@ export const TopBar: React.FC = () => {
       </header>
 
       {/* Mobile Top Header */}
-      <div className="md:hidden flex justify-between items-center px-4 pt-4 pb-2 sticky top-0 z-40 bg-white/95 dark:bg-[#0B0F17]/95 backdrop-blur-md border-b border-neutral-100 dark:border-[#1E2638] transition-colors">
-        <div className="flex items-center gap-2">
+      <div className="md:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0B0F17]/95 backdrop-blur-md border-b border-neutral-100 dark:border-[#1E2638] transition-colors">
+        {/* Floating Smart Install Pill / Banner for Mobile Web browsers */}
+        <AndroidSmartBanner className="px-3 pt-2 pb-1" />
+
+        <div className="flex justify-between items-center px-4 pt-1 pb-2">
+          <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab('profile')}
             className="w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden border border-neutral-200 dark:border-[#243048] shadow-sm active:scale-95 transition-transform cursor-pointer"
@@ -197,6 +205,7 @@ export const TopBar: React.FC = () => {
           </button>
         </div>
       </div>
-    </>
-  );
+    </div>
+  </>
+);
 };

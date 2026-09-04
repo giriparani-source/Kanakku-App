@@ -5,6 +5,7 @@ import { validateImageFileAndDimensions } from '../../utils/imageUtils';
 import { ImageCropperModal } from '../modals/ImageCropperModal';
 import { DEFAULT_AVATAR } from '../../constants/data';
 import { CurrencyCode, UserProfession } from '../../types';
+import { AndroidSmartBanner, AndroidDownloadButton } from '../AndroidSmartBanner';
 
 // Calculate age from Date of Birth string (YYYY-MM-DD)
 function calculateAge(dobString: string): number {
@@ -383,12 +384,17 @@ export const OnboardingView: React.FC = () => {
   const computedAge = calculateAge(dob);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B0F17] text-neutral-900 dark:text-white flex items-center justify-center p-4 md:p-8 animate-fadeIn transition-colors">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B0F17] text-neutral-900 dark:text-white flex flex-col items-center justify-center p-4 md:p-8 animate-fadeIn transition-colors">
+      {/* Mobile Web Floating Smart Install Pill / Banner */}
+      <div className="w-full max-w-xl mb-4">
+        <AndroidSmartBanner />
+      </div>
+
       <div className="w-full max-w-xl bg-white dark:bg-[#141B2A] border border-neutral-200/80 dark:border-[#243048] rounded-[2.5rem] p-6 md:p-10 shadow-2xl space-y-6">
         
         {/* Header & 4-Tab Progress Bar */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-2xl bg-black dark:bg-white text-white dark:text-black flex items-center justify-center font-black shadow-md">
                 <span className="material-symbols-outlined text-xl">account_balance</span>
@@ -400,8 +406,12 @@ export const OnboardingView: React.FC = () => {
                 </span>
               </div>
             </div>
-            <div className="px-3 py-1 rounded-full bg-neutral-100 dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-[11px] font-black text-neutral-700 dark:text-neutral-300">
-              Step {currentTab} of 4
+
+            <div className="flex items-center gap-2">
+              <AndroidDownloadButton className="hidden sm:inline-flex text-[11px] py-1.5 px-3" />
+              <div className="px-3 py-1 rounded-full bg-neutral-100 dark:bg-[#1C263A] border border-neutral-200 dark:border-[#2E3C56] text-[11px] font-black text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
+                Step {currentTab} of 4
+              </div>
             </div>
           </div>
 

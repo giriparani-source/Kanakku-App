@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CurrencyCode, ExpenseCategory, MoneyLocation, IncomeSource, LocationType } from '../../types';
+import { AndroidDownloadButton } from '../AndroidSmartBanner';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -1005,6 +1006,20 @@ export const SettingsView: React.FC = () => {
                 <span className="text-xs font-black px-3 py-1.5 rounded-xl bg-black dark:bg-white text-white dark:text-black shadow-sm">
                   Upload File
                 </span>
+              </div>
+
+              {/* Android Native App APK (Web visitors) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gradient-to-r from-emerald-500/5 via-teal-500/5 to-transparent">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/15 flex items-center justify-center text-lg shrink-0">
+                    <span className="select-none">🤖</span>
+                  </div>
+                  <div>
+                    <span className="text-sm font-black text-black dark:text-white block">Native Android App (APK)</span>
+                    <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">Install for faster voice entry, offline storage & background SMS tracking</span>
+                  </div>
+                </div>
+                <AndroidDownloadButton compactOnMedium={false} className="self-start sm:self-auto text-xs py-2 px-3.5" />
               </div>
 
               {/* Reset App */}
